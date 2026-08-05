@@ -18,17 +18,33 @@ Use `fastembed`, which runs the same model weights through ONNX Runtime.
 
 ## Consequences
 
-Measured on this project:
+Measured on this project, from the installed virtual environment:
 
-| | sentence-transformers + torch | fastembed + ONNX |
-|---|---|---|
-| Install size | roughly 2.5 GB | roughly 400 MB |
-| Container cold start | 45 to 90 s | about 5 s |
-| Dense throughput (CPU) | comparable | 307 docs/s measured |
+| Component | Installed size |
+|---|---:|
+| `onnxruntime` | 42.5 MB |
+| `tokenizers` | 7.5 MB |
+| `fastembed` | 0.8 MB |
+| **ONNX inference stack, total** | **50.8 MB** |
 
-The size reduction is what makes free tier hosting practical at all. A 2.5 GB
-image is slow to build in CI, slow to pull, and close to the limits of the
-platforms this targets.
+For comparison, `torch` alone is between roughly 800 MB and 2.5 GB installed
+depending on platform and whether CUDA is bundled, and `sentence-transformers`
+pulls it in unconditionally. The difference is an order of magnitude, and it is
+the difference between an image a free tier will build and one it will not.
+
+Model weights are the same either way, and are also measured:
+
+| Model | Size |
+|---|---:|
+| `BAAI/bge-small-en-v1.5` (dense) | 64.1 MB |
+| `Xenova/ms-marco-MiniLM-L-6-v2` (reranker) | 87.5 MB |
+| `prithivida/Splade_PP_en_v1` (learned sparse) | 508.1 MB |
+
+That last row is why SPLADE ships behind a flag and is disabled by default in
+the container: it is larger than the entire rest of the runtime combined.
+
+Dense throughput measured at **307 documents per second** on CPU, which is not
+the bottleneck anywhere in this pipeline.
 
 What is given up: PyTorch's ecosystem. Fine-tuning an embedding model, or using
 a model with no ONNX export, would require adding torch back. Since no model is

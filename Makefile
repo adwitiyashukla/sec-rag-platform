@@ -1,4 +1,4 @@
-.PHONY: help install lint format typecheck test test-all ingest train eval benchmark serve docker clean all
+.PHONY: help install lint format typecheck test test-all ingest train eval benchmark verify serve docker clean all
 
 help:
 	@echo "install    Install the package with dev dependencies"
@@ -11,6 +11,7 @@ help:
 	@echo "train      Train the query router and the LTR reranker"
 	@echo "eval       Run the golden set with the quality gate"
 	@echo "benchmark  Ablate retrieval arms and rerankers"
+	@echo "verify     Check README claims against the generated reports"
 	@echo "serve      Run the API and UI"
 	@echo "all        lint, typecheck, test"
 
@@ -48,6 +49,9 @@ benchmark:
 	python -m secrag.cli benchmark
 	python scripts/update_readme.py
 
+verify:
+	python scripts/verify_claims.py
+
 serve:
 	python -m secrag.cli serve
 
@@ -58,4 +62,4 @@ clean:
 	rm -rf .pytest_cache .mypy_cache .ruff_cache htmlcov .coverage coverage.xml
 	find . -type d -name __pycache__ -prune -exec rm -rf {} +
 
-all: lint typecheck test
+all: lint typecheck test verify

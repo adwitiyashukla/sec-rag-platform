@@ -48,10 +48,11 @@ jobs:
         run: ruff format --check src tests
 
       - name: Mypy (strict)
+        # Run on one interpreter only. numpy ships stubs using PEP 695 syntax
+        # that mypy rejects when parsed under 3.11, which produced a red step
+        # inside an otherwise green job and made the run log misleading.
+        if: matrix.python-version == '3.12'
         run: mypy src
-        # Type checking is informative on the matrix edges but must not gate
-        # the build on a version-specific stub difference.
-        continue-on-error: ${{ matrix.python-version != '3.12' }}
 
       - name: Tests
         run: pytest tests/unit -v --cov=secrag --cov-report=xml --cov-report=term-missing

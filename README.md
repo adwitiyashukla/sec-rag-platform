@@ -264,7 +264,7 @@ Each of these is written up with its tradeoffs and what was given up:
 
 | ADR | Decision |
 |---|---|
-| [0001](docs/adr/0001-onnx-over-pytorch.md) | ONNX Runtime instead of PyTorch: 2.5 GB to 400 MB, 45 s to 5 s cold start |
+| [0001](docs/adr/0001-onnx-over-pytorch.md) | ONNX Runtime instead of PyTorch: a 51 MB inference stack instead of one measured in gigabytes |
 | [0002](docs/adr/0002-hybrid-retrieval-rrf.md) | Fuse retrieval arms by rank, not by score |
 | [0003](docs/adr/0003-xbrl-for-numbers.md) | Compute figures from XBRL, never generate them |
 | [0004](docs/adr/0004-groundedness-without-a-judge.md) | Verify groundedness deterministically, without a judge model |
