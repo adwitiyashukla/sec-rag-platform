@@ -159,8 +159,32 @@ def main() -> int:
             staging,
             quiet=True,
         )
+
+        # The Hub rejects any file over 10 MiB that is not in Git LFS, and the
+        # Qdrant store is around 29 MB. The attributes file must be committed
+        # before the large file is staged; otherwise git stores it verbatim and
+        # the push is rejected by a pre-receive hook with no obvious cause.
+        run(["git", "lfs", "install", "--local"], staging, quiet=True)
+        (staging / ".gitattributes").write_text(
+            "*.sqlite filter=lfs diff=lfs merge=lfs -text\n"
+            "*.parquet filter=lfs diff=lfs merge=lfs -text\n",
+            encoding="utf-8",
+        )
+        run(["git", "add", ".gitattributes"], staging, quiet=True)
         run(["git", "add", "-A"], staging, quiet=True)
         run(["git", "commit", "-q", "-m", "deploy space"], staging, quiet=True)
+
+        tracked = subprocess.run(
+            ["git", "lfs", "ls-files"],
+            cwd=staging,
+            capture_output=True,
+            text=True,
+            check=False,
+        ).stdout
+        if "storage.sqlite" not in tracked:
+            print("\nThe index was not converted to LFS; the push would be rejected.")
+            return 1
+        print(f"  LFS tracking {len(tracked.strip().splitlines())} file(s)")
 
         remote = (
             f"https://{args.username}:{token}@huggingface.co/spaces/{args.username}/{args.space}"
