@@ -1,0 +1,68 @@
+name: Deploy to Hugging Face Spaces
+
+# Mirrors main to a Hugging Face Docker Space, which rebuilds and redeploys on
+# push. Runs only after CI and the evaluation gate have both passed, so a
+# regression cannot reach the live demo.
+
+on:
+  workflow_run:
+    workflows: ["CI", "Evaluation gate"]
+    types: [completed]
+    branches: [main]
+  workflow_dispatch:
+
+jobs:
+  deploy:
+    name: Push to Space
+    runs-on: ubuntu-latest
+    if: github.event_name == 'workflow_dispatch' || github.event.workflow_run.conclusion == 'success'
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          lfs: true
+
+      - name: Configure git
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+
+      - name: Add Hugging Face Space metadata
+        # Spaces configures itself from YAML frontmatter in README.md. That
+        # frontmatter is injected here rather than committed, so the README on
+        # GitHub stays clean instead of opening with a block of deploy config.
+        run: |
+          cat > /tmp/frontmatter.md <<'FM'
+          ---
+          title: SEC RAG Platform
+          emoji: 📊
+          colorFrom: blue
+          colorTo: gray
+          sdk: docker
+          app_port: 7860
+          pinned: false
+          license: mit
+          short_description: Evaluation-driven RAG over SEC filings
+          ---
+
+          FM
+          cat /tmp/frontmatter.md README.md > /tmp/README.hf.md
+          mv /tmp/README.hf.md README.md
+          git add README.md
+          git commit -m "chore: add Space metadata for deployment"
+
+      - name: Push to Hugging Face
+        env:
+          HF_TOKEN: ${{ secrets.HF_TOKEN }}
+          HF_USERNAME: ${{ secrets.HF_USERNAME }}
+          HF_SPACE: ${{ secrets.HF_SPACE }}
+        run: |
+          if [ -z "$HF_TOKEN" ]; then
+            echo "HF_TOKEN is not configured. Skipping deployment."
+            echo "Set HF_TOKEN, HF_USERNAME, and HF_SPACE in repository secrets to enable."
+            exit 0
+          fi
+          git push --force \
+            "https://${HF_USERNAME}:${HF_TOKEN}@huggingface.co/spaces/${HF_USERNAME}/${HF_SPACE}" \
+            main

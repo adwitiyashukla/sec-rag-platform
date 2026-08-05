@@ -1,0 +1,25 @@
+services:
+  secrag:
+    build: .
+    image: sec-rag-platform:local
+    ports:
+      - "7860:7860"
+    environment:
+      SECRAG_GROQ_API_KEY: ${SECRAG_GROQ_API_KEY:-}
+      SECRAG_GEMINI_API_KEY: ${SECRAG_GEMINI_API_KEY:-}
+      SECRAG_EDGAR_USER_AGENT: ${SECRAG_EDGAR_USER_AGENT:-sec-rag-platform/0.1.0 (contact@example.com)}
+      SECRAG_LOG_JSON: "true"
+      # Enable to reproduce the three-arm benchmark locally. Costs 532 MB.
+      SECRAG_ENABLE_SPLADE: ${SECRAG_ENABLE_SPLADE:-false}
+    volumes:
+      # Persist the index so a restart does not require re-ingesting EDGAR.
+      - secrag-data:/data
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request;urllib.request.urlopen('http://localhost:7860/health',timeout=4)"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 40s
+
+volumes:
+  secrag-data:

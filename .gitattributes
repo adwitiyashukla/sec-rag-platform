@@ -1,0 +1,9 @@
+# Normalise line endings so the repository is identical regardless of the OS
+# it was committed from. Without this, a Windows checkout rewrites every file
+# to CRLF and the first commit from Linux shows the whole tree as modified.
+* text=auto eol=lf
+
+*.png binary
+*.jpg binary
+*.parquet binary
+*.joblib binary
