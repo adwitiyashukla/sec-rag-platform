@@ -117,7 +117,7 @@ def router_block() -> str | None:
     data = json.loads(path.read_text(encoding="utf-8"))
 
     lines = [
-        f"| Metric | Value |",
+        "| Metric | Value |",
         "|---|---:|",
         f"| Cross-validated accuracy | **{data['cv_accuracy']:.3f}** |",
         f"| Macro F1 | {data['cv_macro_f1']:.3f} |",
