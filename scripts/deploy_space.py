@@ -58,6 +58,10 @@ colorTo: gray
 sdk: gradio
 sdk_version: 5.49.1
 app_file: app.py
+# Spaces default to Python 3.10. This project requires 3.11 or newer for
+# StrEnum and datetime.UTC, so pip install refuses before it starts and the
+# build fails with a cache-miss message that says nothing about the cause.
+python_version: "3.12"
 pinned: false
 license: mit
 short_description: RAG over SEC filings with XBRL-verified figures

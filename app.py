@@ -225,8 +225,11 @@ with gr.Blocks(title="sec-rag-platform") as demo:
 if __name__ == "__main__":
     # Binding to all interfaces is required: the Space serves the app from
     # inside a container and reaches it through a published port.
+    #
+    # No theme is passed. Gradio 5 accepts it on Blocks and Gradio 6 accepts it
+    # on launch, and the Space pins its own version, so passing it either way
+    # risks a TypeError on the version we did not test against.
     demo.queue(max_size=16).launch(
         server_name="0.0.0.0",  # noqa: S104
         server_port=7860,
-        theme=gr.themes.Soft(),
     )
