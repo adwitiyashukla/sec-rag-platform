@@ -239,4 +239,9 @@ if __name__ == "__main__":
     demo.queue(max_size=16).launch(
         server_name="0.0.0.0",  # noqa: S104
         server_port=7860,
+        # Server-side rendering spawns a Node process alongside Python. It is
+        # marked experimental, buys nothing for an app whose latency is
+        # dominated by retrieval, and adds a second thing that can fail on a
+        # shared free-tier container.
+        ssr_mode=False,
     )
