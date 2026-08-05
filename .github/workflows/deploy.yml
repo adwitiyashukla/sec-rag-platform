@@ -1,8 +1,11 @@
-name: Deploy to Hugging Face Spaces
+name: Deploy to Hugging Face Space
 
-# Mirrors main to a Hugging Face Docker Space, which rebuilds and redeploys on
-# push. Runs only after CI and the evaluation gate have both passed, so a
-# regression cannot reach the live demo.
+# Publishes the Gradio Space. Runs only after CI and the evaluation gate have
+# both passed, so a regression cannot reach the public demo.
+#
+# The index is rebuilt here rather than committed to this repository. Free
+# Spaces have no persistent disk, so the Space needs the index shipped inside
+# it; on GitHub the same files are build output and stay gitignored.
 
 on:
   workflow_run:
@@ -11,58 +14,76 @@ on:
     branches: [main]
   workflow_dispatch:
 
+concurrency:
+  group: deploy-space
+  cancel-in-progress: false
+
 jobs:
   deploy:
-    name: Push to Space
+    name: Build index and publish
     runs-on: ubuntu-latest
+    timeout-minutes: 30
     if: github.event_name == 'workflow_dispatch' || github.event.workflow_run.conclusion == 'success'
+
+    env:
+      SECRAG_LLM_PROVIDERS: echo
+      SECRAG_ENABLE_SPLADE: "false"
+      SECRAG_EDGAR_USER_AGENT: "sec-rag-platform-ci/0.1.0 (shuklaaw@mail.uc.edu)"
 
     steps:
       - uses: actions/checkout@v4
+
+      - name: Skip when the Space is not configured
+        id: guard
+        run: |
+          if [ -z "${{ secrets.HF_TOKEN }}" ]; then
+            echo "HF_TOKEN is not set. Skipping deployment."
+            echo "Add HF_TOKEN and HF_USERNAME under Settings, Secrets and variables, Actions."
+            echo "configured=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "configured=true" >> "$GITHUB_OUTPUT"
+          fi
+
+      - uses: actions/setup-python@v5
+        if: steps.guard.outputs.configured == 'true'
         with:
-          fetch-depth: 0
-          lfs: true
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: pyproject.toml
 
-      - name: Configure git
+      - name: Install
+        if: steps.guard.outputs.configured == 'true'
         run: |
-          git config user.name "github-actions[bot]"
-          git config user.email "github-actions[bot]@users.noreply.github.com"
+          python -m pip install --upgrade pip
+          pip install -e .
 
-      - name: Add Hugging Face Space metadata
-        # Spaces configures itself from YAML frontmatter in README.md. That
-        # frontmatter is injected here rather than committed, so the README on
-        # GitHub stays clean instead of opening with a block of deploy config.
+      - name: Cache EDGAR responses
+        if: steps.guard.outputs.configured == 'true'
+        uses: actions/cache@v4
+        with:
+          path: data/raw/edgar
+          key: edgar-${{ hashFiles('src/secrag/corpus.py') }}-v1
+          restore-keys: edgar-
+
+      - name: Cache ONNX weights
+        if: steps.guard.outputs.configured == 'true'
+        uses: actions/cache@v4
+        with:
+          path: data/models
+          key: fastembed-${{ runner.os }}-bge-small-minilm-v1
+
+      - name: Build the index the Space will ship with
+        if: steps.guard.outputs.configured == 'true'
         run: |
-          cat > /tmp/frontmatter.md <<'FM'
-          ---
-          title: SEC RAG Platform
-          emoji: 📊
-          colorFrom: blue
-          colorTo: gray
-          sdk: docker
-          app_port: 7860
-          pinned: false
-          license: mit
-          short_description: Evaluation-driven RAG over SEC filings
-          ---
+          python -m secrag.cli ingest --rebuild
+          python -m secrag.cli train-router
+          python -m secrag.cli train-ltr
 
-          FM
-          cat /tmp/frontmatter.md README.md > /tmp/README.hf.md
-          mv /tmp/README.hf.md README.md
-          git add README.md
-          git commit -m "chore: add Space metadata for deployment"
-
-      - name: Push to Hugging Face
+      - name: Publish
+        if: steps.guard.outputs.configured == 'true'
         env:
           HF_TOKEN: ${{ secrets.HF_TOKEN }}
-          HF_USERNAME: ${{ secrets.HF_USERNAME }}
-          HF_SPACE: ${{ secrets.HF_SPACE }}
         run: |
-          if [ -z "$HF_TOKEN" ]; then
-            echo "HF_TOKEN is not configured. Skipping deployment."
-            echo "Set HF_TOKEN, HF_USERNAME, and HF_SPACE in repository secrets to enable."
-            exit 0
-          fi
-          git push --force \
-            "https://${HF_USERNAME}:${HF_TOKEN}@huggingface.co/spaces/${HF_USERNAME}/${HF_SPACE}" \
-            main
+          python scripts/deploy_space.py \
+            --username "${{ secrets.HF_USERNAME }}" \
+            --space "${{ secrets.HF_SPACE || 'sec-rag-platform' }}"

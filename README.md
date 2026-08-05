@@ -6,6 +6,9 @@
 [![Evaluation gate](https://github.com/adwitiyashukla/sec-rag-platform/actions/workflows/eval.yml/badge.svg)](https://github.com/adwitiyashukla/sec-rag-platform/actions/workflows/eval.yml)
 [![Python 3.11+](https://img.shields.io/badge/python-3.11%20|%203.12%20|%203.13-blue)](https://www.python.org)
 [![License: MIT](https://img.shields.io/badge/license-MIT-green)](LICENSE)
+[![Live demo](https://img.shields.io/badge/%F0%9F%A4%97%20demo-Hugging%20Face-yellow)](https://huggingface.co/spaces/adwitiyashukla/sec-rag-platform)
+
+**[Try the live demo](https://huggingface.co/spaces/adwitiyashukla/sec-rag-platform)**
 
 A question answering system over 10-K filings that hybrid-retrieves across three
 independent arms, reranks with a cross-encoder, computes financial figures from
@@ -283,6 +286,11 @@ Each of these is written up with its tradeoffs and what was given up:
 | `GET /metrics` | Prometheus text exposition |
 | `GET /health`, `GET /ready` | Liveness and readiness, separated deliberately |
 | `GET /docs` | OpenAPI |
+
+The [live demo](https://huggingface.co/spaces/adwitiyashukla/sec-rag-platform) runs a
+Gradio front end over the same engine. Hugging Face made Docker Spaces a paid
+feature, so the free tier serves Gradio; the FastAPI service above is what the
+Docker image and `secrag serve` run, and both call identical code.
 
 ```bash
 curl -s localhost:7860/v1/query \

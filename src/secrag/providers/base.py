@@ -7,6 +7,7 @@ against a deterministic stand-in with no API keys and no network.
 
 from __future__ import annotations
 
+import asyncio
 from abc import ABC, abstractmethod
 from collections.abc import AsyncIterator, Sequence
 from dataclasses import dataclass
@@ -125,20 +126,37 @@ class HTTPProvider(LLMProvider):
             raise ProviderError(msg)
         self.api_key = api_key
         self._client: httpx.AsyncClient | None = None
+        self._client_loop: asyncio.AbstractEventLoop | None = None
 
     @property
     def client(self) -> httpx.AsyncClient:
-        if self._client is None or self._client.is_closed:
+        """Return a client valid for the *current* event loop.
+
+        An httpx.AsyncClient binds its connection pool to the loop that created
+        it. Caching one across loops raises "Event loop is closed" on the second
+        call, which is easy to miss because the first call always succeeds.
+
+        It surfaces wherever a caller drives async code from a sync context
+        with asyncio.run, since that builds and tears down a loop each time.
+        Rebinding here keeps the provider correct regardless of how it is
+        driven. The stale client is dropped rather than closed, because closing
+        it would require awaiting on a loop that no longer exists.
+        """
+        loop = asyncio.get_running_loop()
+        if self._client is None or self._client.is_closed or self._client_loop is not loop:
             self._client = httpx.AsyncClient(
                 base_url=self.base_url,
                 timeout=httpx.Timeout(self.timeout_s, connect=10.0),
                 limits=httpx.Limits(max_connections=16, max_keepalive_connections=8),
             )
+            self._client_loop = loop
         return self._client
 
     async def aclose(self) -> None:
         if self._client is not None and not self._client.is_closed:
             await self._client.aclose()
+        self._client = None
+        self._client_loop = None
 
     def _retryer(self) -> AsyncRetrying:
         """Retry only on transient faults.

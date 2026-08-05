@@ -1,0 +1,7 @@
+# Dependencies for the Hugging Face Space (Gradio SDK).
+#
+# Installs this repository as a package, so the Space runs exactly the same
+# engine code as the CLI, the API, and the test suite. Gradio is the only
+# addition, and it is not a dependency of the library itself.
+.
+gradio>=5.0.0

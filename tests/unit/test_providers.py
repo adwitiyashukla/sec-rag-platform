@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import asyncio
+
 import httpx
 import pytest
 import respx
@@ -156,3 +158,35 @@ def test_build_chain_degrades_to_offline_when_no_keys_exist(settings) -> None:
     """A misconfigured deployment should boot and be inspectable, not refuse to start."""
     chain = build_chain(settings.model_copy(update={"llm_providers": "groq,gemini"}))
     assert chain.providers[0].name == "echo"
+
+
+@respx.mock
+def test_client_rebinds_when_the_event_loop_changes() -> None:
+    """A pooled client must not outlive the loop that created it.
+
+    Caching one across loops raises "Event loop is closed" on the second call,
+    and only on the second, which makes it easy to ship. It happens wherever a
+    sync caller drives the engine with asyncio.run per request.
+    """
+    respx.post("https://api.groq.com/openai/v1/chat/completions").mock(
+        return_value=httpx.Response(
+            200,
+            json={
+                "model": "m",
+                "choices": [{"message": {"content": "ok [1]."}, "finish_reason": "stop"}],
+                "usage": {"prompt_tokens": 5, "completion_tokens": 2},
+            },
+        )
+    )
+    provider = GroqProvider(api_key="test", model="m")
+    message = [ChatMessage(role="user", content="hi")]
+
+    first = asyncio.run(provider.complete(message))
+    client_after_first = provider._client
+
+    # A second run gets a brand new loop, exactly as a per-request asyncio.run
+    # would. The provider must notice and rebuild rather than reuse.
+    second = asyncio.run(provider.complete(message))
+
+    assert first.text == second.text == "ok [1]."
+    assert provider._client is not client_after_first, "client was not rebound"
