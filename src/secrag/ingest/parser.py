@@ -65,8 +65,16 @@ class Block:
     section: FilingSection = FilingSection.OTHER
 
 
+# Filings encode bullets and dingbats as Symbol or Wingdings glyphs, which land
+# in the Unicode private use area. They carry no meaning outside the font that
+# drew them, they render as replacement characters everywhere else, and they
+# survive into chunks, embeddings, and quoted citations if left alone.
+_PUA_RE = re.compile(r"[\ue000-\uf8ff\U000f0000-\U000ffffd]")
+
+
 def _clean(text: str) -> str:
-    return _NEWLINES_RE.sub("\n\n", _WS_RE.sub(" ", text.replace("\xad", ""))).strip()
+    text = _PUA_RE.sub(" ", text.replace("\xad", ""))
+    return _NEWLINES_RE.sub("\n\n", _WS_RE.sub(" ", text)).strip()
 
 
 def _render_table(node: Node) -> str:

@@ -71,3 +71,23 @@ def test_data_table_heuristic(rendered: str, expected: bool) -> None:
 def test_empty_document_raises() -> None:
     with pytest.raises(IngestionError):
         extract_blocks("   ")
+
+
+def test_private_use_glyphs_are_stripped() -> None:
+    """Filings encode bullets as Wingdings glyphs in the private use area.
+
+    They render as replacement characters in every other font and would
+    otherwise survive into chunks, embeddings, and quoted citations.
+    """
+    html = (
+        "<html><body><p>Products launched in the quarter:  iPhone 16; "
+        " Apple Watch Series 10; and  AirPods. "
+        "These contributed to net sales growth during the period.</p></body></html>"
+    )
+    blocks = extract_blocks(html)
+    combined = " ".join(b.text for b in blocks)
+
+    assert "" not in combined
+    assert "" not in combined
+    assert "iPhone 16" in combined
+    assert "Apple Watch Series 10" in combined

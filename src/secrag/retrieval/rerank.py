@@ -17,6 +17,7 @@ only honest way to make that tradeoff.
 
 from __future__ import annotations
 
+import threading
 from abc import ABC, abstractmethod
 from pathlib import Path
 from typing import Any
@@ -59,18 +60,21 @@ class CrossEncoderReranker(Reranker):
     def __init__(self, settings: Settings | None = None) -> None:
         self.settings = settings or get_settings()
         self._model: Any | None = None
+        self._lock = threading.Lock()
 
     @property
     def model(self) -> Any:
         if self._model is None:
-            from fastembed.rerank.cross_encoder import TextCrossEncoder
+            with self._lock:
+                if self._model is None:
+                    from fastembed.rerank.cross_encoder import TextCrossEncoder
 
-            with span("load_reranker", model=self.settings.rerank_model):
-                self._model = TextCrossEncoder(
-                    model_name=self.settings.rerank_model,
-                    cache_dir=str(self.settings.models_dir),
-                )
-            log.info("reranker_loaded", model=self.settings.rerank_model)
+                    with span("load_reranker", model=self.settings.rerank_model):
+                        self._model = TextCrossEncoder(
+                            model_name=self.settings.rerank_model,
+                            cache_dir=str(self.settings.models_dir),
+                        )
+                    log.info("reranker_loaded", model=self.settings.rerank_model)
         return self._model
 
     def rerank(self, query: str, candidates: list[ScoredChunk], top_n: int) -> list[ScoredChunk]:

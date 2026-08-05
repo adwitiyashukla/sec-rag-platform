@@ -17,6 +17,7 @@ README a measurement rather than a claim.
 
 from __future__ import annotations
 
+import threading
 from collections.abc import Sequence
 from dataclasses import dataclass, field
 
@@ -64,6 +65,10 @@ class HybridRetriever:
         self.store = store or VectorStore(self.settings, self.embedder)
         self.bm25 = bm25 or BM25Index(self.settings)
         self._rerankers: dict[str, Reranker] = {}
+        # Same reasoning as the store and the embedder: warmup runs on a
+        # worker thread alongside live requests, so building the BM25 index
+        # and constructing rerankers are both genuinely concurrent.
+        self._lock = threading.Lock()
 
     # -- lifecycle --------------------------------------------------------
 
@@ -75,11 +80,16 @@ class HybridRetriever:
         """
         if self.bm25.is_ready and not force:
             return self.bm25.size
-        return self.bm25.build(self.store.iter_chunks())
+        with self._lock:
+            if self.bm25.is_ready and not force:
+                return self.bm25.size
+            return self.bm25.build(self.store.iter_chunks())
 
     def reranker(self, name: str) -> Reranker:
         if name not in self._rerankers:
-            self._rerankers[name] = build_reranker(name, self.settings)
+            with self._lock:
+                if name not in self._rerankers:
+                    self._rerankers[name] = build_reranker(name, self.settings)
         return self._rerankers[name]
 
     @property

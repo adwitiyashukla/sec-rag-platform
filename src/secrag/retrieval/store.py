@@ -13,6 +13,7 @@ second thing to keep in sync.
 from __future__ import annotations
 
 import shutil
+import threading
 import uuid
 from collections.abc import Iterable, Sequence
 from typing import TYPE_CHECKING, Any
@@ -107,17 +108,28 @@ class VectorStore:
         self.embedder = embedder or Embedder(self.settings)
         self.path = self.settings.index_dir / "qdrant"
         self._client: Any | None = None
+        # Startup warmup runs on a worker thread while the server is already
+        # accepting requests, so lazy initialisation here is genuinely
+        # concurrent. Without this lock two threads both observe _client as
+        # None, both construct a client on the same directory, and one either
+        # loses the file lock or reads a collection the other has not finished
+        # creating. It surfaces as an intermittent "Collection not found".
+        self._lock = threading.Lock()
 
     # -- lifecycle --------------------------------------------------------
 
     @property
     def client(self) -> Any:
         if self._client is None:
-            from qdrant_client import QdrantClient
+            with self._lock:
+                # Re-checked inside the lock: another thread may have finished
+                # construction while this one was waiting.
+                if self._client is None:
+                    from qdrant_client import QdrantClient
 
-            self.path.parent.mkdir(parents=True, exist_ok=True)
-            self._client = QdrantClient(path=str(self.path))
-            self._ensure_collection()
+                    self.path.parent.mkdir(parents=True, exist_ok=True)
+                    self._client = QdrantClient(path=str(self.path))
+                    self._ensure_collection()
         return self._client
 
     def _ensure_collection(self) -> None:
@@ -159,9 +171,10 @@ class VectorStore:
         log.info("collection_created", collection=COLLECTION, dim=self.settings.dense_dim)
 
     def close(self) -> None:
-        if self._client is not None:
-            self._client.close()
-            self._client = None
+        with self._lock:
+            if self._client is not None:
+                self._client.close()
+                self._client = None
 
     def reset(self) -> None:
         """Delete the index entirely. Used by ingest --rebuild and by tests."""

@@ -12,6 +12,7 @@ and a test that never embeds anything never downloads a model.
 
 from __future__ import annotations
 
+import threading
 from collections.abc import Sequence
 from dataclasses import dataclass
 from typing import Any
@@ -48,33 +49,41 @@ class Embedder:
         self.settings = settings or get_settings()
         self._dense: Any | None = None
         self._sparse: Any | None = None
+        # Model loading is slow and happens on whichever thread arrives first.
+        # Two threads loading the same ONNX session concurrently wastes memory
+        # at best and corrupts the shared cache directory at worst.
+        self._lock = threading.Lock()
 
     # -- lazy model handles ----------------------------------------------
 
     @property
     def dense(self) -> Any:
         if self._dense is None:
-            from fastembed import TextEmbedding
+            with self._lock:
+                if self._dense is None:
+                    from fastembed import TextEmbedding
 
-            with span("load_dense_model", model=self.settings.dense_model):
-                self._dense = TextEmbedding(
-                    model_name=self.settings.dense_model,
-                    cache_dir=str(self.settings.models_dir),
-                )
-            log.info("dense_model_loaded", model=self.settings.dense_model)
+                    with span("load_dense_model", model=self.settings.dense_model):
+                        self._dense = TextEmbedding(
+                            model_name=self.settings.dense_model,
+                            cache_dir=str(self.settings.models_dir),
+                        )
+                    log.info("dense_model_loaded", model=self.settings.dense_model)
         return self._dense
 
     @property
     def sparse(self) -> Any:
         if self._sparse is None:
-            from fastembed import SparseTextEmbedding
+            with self._lock:
+                if self._sparse is None:
+                    from fastembed import SparseTextEmbedding
 
-            with span("load_sparse_model", model=self.settings.sparse_model):
-                self._sparse = SparseTextEmbedding(
-                    model_name=self.settings.sparse_model,
-                    cache_dir=str(self.settings.models_dir),
-                )
-            log.info("sparse_model_loaded", model=self.settings.sparse_model)
+                    with span("load_sparse_model", model=self.settings.sparse_model):
+                        self._sparse = SparseTextEmbedding(
+                            model_name=self.settings.sparse_model,
+                            cache_dir=str(self.settings.models_dir),
+                        )
+                    log.info("sparse_model_loaded", model=self.settings.sparse_model)
         return self._sparse
 
     # -- dense ------------------------------------------------------------
