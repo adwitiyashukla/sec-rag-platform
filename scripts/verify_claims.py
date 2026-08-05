@@ -117,13 +117,17 @@ for rel in tracked:
         continue
 check("no API keys in tracked files", not leaked, "; ".join(leaked))
 
+# Built from its codepoint rather than written literally, so this file does
+# not match its own search and report a false positive.
+EM_DASH = chr(0x2014)
+
 print("\nThe em dash character does not appear in any tracked file")
 em_dash_files = [
     rel
     for rel in tracked
     if (ROOT / rel).is_file()
     and (ROOT / rel).suffix not in {".png", ".jpg", ".parquet", ".joblib"}
-    and "—" in (ROOT / rel).read_text(encoding="utf-8", errors="ignore")
+    and EM_DASH in (ROOT / rel).read_text(encoding="utf-8", errors="ignore")
 ]
 check("no em dash present", not em_dash_files, ", ".join(em_dash_files[:5]))
 
