@@ -60,7 +60,7 @@ sdk_version: 5.49.1
 app_file: app.py
 pinned: false
 license: mit
-short_description: Evaluation-driven RAG over SEC filings with XBRL-verified figures
+short_description: RAG over SEC filings with XBRL-verified figures
 ---
 
 """
@@ -74,6 +74,26 @@ def run(cmd: list[str], cwd: Path, quiet: bool = False) -> None:
         raise SystemExit(1)
     if not quiet and result.stdout.strip():
         print("  " + result.stdout.strip().splitlines()[-1])
+
+
+# The Hub enforces these and rejects the push otherwise. Checking locally turns
+# a confusing pre-receive hook failure into an obvious message.
+FRONTMATTER_LIMITS = {"short_description": 60, "title": 100}
+
+
+def check_frontmatter() -> None:
+    problems = []
+    for line in FRONTMATTER.splitlines():
+        if ":" not in line or line.strip() in {"---", ""}:
+            continue
+        key, _, value = line.partition(":")
+        limit = FRONTMATTER_LIMITS.get(key.strip())
+        if limit and len(value.strip()) > limit:
+            problems.append(f"  {key.strip()} is {len(value.strip())} characters, limit is {limit}")
+    if problems:
+        print("Space metadata is invalid:", file=sys.stderr)
+        print("\n".join(problems), file=sys.stderr)
+        raise SystemExit(1)
 
 
 def check_index() -> None:
@@ -95,6 +115,7 @@ def main() -> int:
     parser.add_argument("--space", default="sec-rag-platform", help="Space name")
     args = parser.parse_args()
 
+    check_frontmatter()
     check_index()
 
     # CI supplies the token through the environment; a human is prompted, and
