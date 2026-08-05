@@ -223,10 +223,42 @@ class QueryEngine:
         sources and the routing decision while the answer is still arriving,
         and the verification verdict is emitted at the end because it cannot
         exist until the answer is complete.
+
+        A cache hit replays the stored answer through the same event sequence
+        rather than short-circuiting it, so the client renders a cached result
+        identically to a fresh one and needs no special case.
         """
         started = time.perf_counter()
+        partition = self._partition(request)
 
         with start_trace(question=request.question[:120]) as trace:
+            if request.use_cache and (hit := self.cache.get(request.question, partition)):
+                yield {
+                    "event": "meta",
+                    "data": {
+                        "trace_id": trace.trace_id,
+                        "route": hit.route.model_dump(mode="json") if hit.route else None,
+                        "reranker": "cached",
+                        "contexts": [_context_payload(c) for c in hit.contexts],
+                        "numeric_results": [n.model_dump(mode="json") for n in hit.numeric_results],
+                        "cached": True,
+                    },
+                }
+                yield {"event": "token", "data": {"text": hit.answer.text}}
+                yield {
+                    "event": "done",
+                    "data": {
+                        "status": hit.answer.status.value,
+                        "groundedness": hit.answer.groundedness,
+                        "refusal_reason": hit.answer.refusal_reason,
+                        "citations": [c.model_dump(mode="json") for c in hit.answer.citations],
+                        "cached": True,
+                        "latency_ms": round((time.perf_counter() - started) * 1000, 2),
+                        "trace": trace.to_dict(),
+                    },
+                }
+                return
+
             route = self.router.route(request.question)
             numeric = self._numeric(request.question, route)
             contexts, reranker = self._retrieve(request, route)
@@ -252,6 +284,9 @@ class QueryEngine:
                         "status": AnswerStatus.REFUSED_NO_CONTEXT.value,
                         "groundedness": 0.0,
                         "citations": [],
+                        # Present on every done event, so a client never has to
+                        # distinguish "not cached" from "field absent".
+                        "cached": False,
                         "latency_ms": round((time.perf_counter() - started) * 1000, 2),
                         "trace": trace.to_dict(),
                     },
@@ -264,6 +299,27 @@ class QueryEngine:
                 yield {"event": "token", "data": {"text": piece}}
 
             final = self.generator.finalise_streamed("".join(collected), contexts)
+            latency_ms = round((time.perf_counter() - started) * 1000, 2)
+
+            # Store on the way out, on the same terms as the non-streaming
+            # path: successful answers only, because a refusal usually means a
+            # gap in the corpus and caching one keeps returning it after a
+            # later ingestion has filled the gap.
+            if request.use_cache and final.answer.status is AnswerStatus.OK:
+                self.cache.put(
+                    request.question,
+                    QueryResponse(
+                        question=request.question,
+                        answer=final.answer,
+                        route=route,
+                        contexts=final.contexts,
+                        numeric_results=list(numeric),
+                        trace_id=trace.trace_id,
+                        latency_ms=latency_ms,
+                    ),
+                    partition,
+                )
+
             yield {
                 "event": "done",
                 "data": {
@@ -271,7 +327,8 @@ class QueryEngine:
                     "groundedness": final.answer.groundedness,
                     "refusal_reason": final.answer.refusal_reason,
                     "citations": [c.model_dump(mode="json") for c in final.answer.citations],
-                    "latency_ms": round((time.perf_counter() - started) * 1000, 2),
+                    "cached": False,
+                    "latency_ms": latency_ms,
                     "trace": trace.to_dict(),
                 },
             }

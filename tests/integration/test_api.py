@@ -127,3 +127,24 @@ def test_stream_emits_meta_then_tokens_then_done(client: TestClient) -> None:
     ]
     assert "trace" in payloads[-1]
     assert "groundedness" in payloads[-1]
+
+
+def test_stream_reports_cache_state(client: TestClient) -> None:
+    """The streaming path must consult the cache, not just the JSON endpoint.
+
+    The web UI streams, so a cache that only the non-streaming endpoint checked
+    was unreachable in the one path users actually take. It showed up as a
+    permanently empty hit counter.
+    """
+    with client.stream(
+        "POST", "/v1/query/stream", json={"question": "What are the risk factors?"}
+    ) as response:
+        body = "".join(response.iter_text())
+
+    done = [
+        json.loads(line.removeprefix("data: "))
+        for line in body.splitlines()
+        if line.startswith("data: ")
+    ][-1]
+    assert "cached" in done, "the client cannot tell a cached answer from a fresh one"
+    assert done["cached"] is False

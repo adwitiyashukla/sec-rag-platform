@@ -275,6 +275,7 @@ function renderBadges(d, route, reranker) {
   }
   if (reranker) out.push(`<span class="badge">reranker: ${esc(reranker)}</span>`);
   if (d.latency_ms) out.push(`<span class="badge">${Math.round(d.latency_ms)} ms</span>`);
+  if (d.cached) out.push(`<span class="badge good">cached</span>`);
   if (d.citations) out.push(`<span class="badge">${d.citations.length} citations</span>`);
   $("badges").innerHTML = out.join("");
   if (d.refusal_reason) {
