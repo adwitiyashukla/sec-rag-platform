@@ -16,11 +16,18 @@ first visitor with an empty corpus.
 from __future__ import annotations
 
 import os
+import sys
 from pathlib import Path
 from typing import Any
 
 # Configure before importing secrag, since settings are read on first use.
 _ROOT = Path(__file__).parent
+
+# Spaces install requirements.txt before copying the repository in, so this
+# package is never pip-installed there. Putting src/ on the path makes the
+# import work identically in both places without a second copy of the code.
+sys.path.insert(0, str(_ROOT / "src"))
+
 os.environ.setdefault("SECRAG_DATA_DIR", str(_ROOT / "data"))
 # SPLADE is a 508 MB download for a measured gain of roughly 0.01 nDCG once a
 # reranker is in play. Not a good trade on a 16 GB shared box.
