@@ -345,6 +345,9 @@ Stated plainly, because a project that claims none is not being honest.
   reason to move to a Qdrant server rather than to change the code.
 - **The corpus is five companies over two years.** Enough to stress the parser
   across sectors, not a claim about scale.
+- **The demo runs on a free Space, which sleeps after 48 hours idle.** A
+  scheduled workflow pings it every 12 hours to keep it warm. If you find it
+  waking up, that is why, and it takes about a minute.
 
 ---
 

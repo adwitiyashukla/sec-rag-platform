@@ -155,3 +155,50 @@ Run `secrag train-router`.
 **`ltr` reranker silently behaves like `none`.** The model is not trained. Run
 `secrag train-ltr`. It degrades to fusion order by design rather than failing,
 because an untrained ranker should never make results worse than no ranker.
+
+---
+
+## 5. Keeping the Space awake
+
+Free Spaces sleep after **48 hours** of inactivity. A sleeping Space still
+works, anyone visiting restarts it automatically, but they wait one to two
+minutes staring at a loading screen first. That is a bad first impression on a
+link you put on a CV.
+
+Custom sleep times require paid hardware, so the practical answer is to make
+sure a visit happens. `.github/workflows/keep-warm.yml` pings every 12 hours,
+which keeps the Space permanently inside the window.
+
+### Adding more Spaces
+
+Edit the `SPACES` list in that workflow:
+
+```yaml
+SPACES="
+https://adwitiyashukla-sec-rag-platform.hf.space
+https://adwitiyashukla-your-next-project.hf.space
+"
+```
+
+The URL pattern is `https://{username}-{space-name}.hf.space`, with any
+underscores in the Space name replaced by hyphens. Use that host rather than
+the `huggingface.co/spaces/...` page, because the page can render from cache
+without ever touching the container, which does not count as activity.
+
+### Verifying it works
+
+1. Actions tab, **Keep Spaces awake**, **Run workflow**. It should report
+   `ok (HTTP 200)`.
+2. After that, check the Space shows **Running** rather than **Sleeping**.
+
+### One thing to watch
+
+GitHub disables scheduled workflows on repositories with no commits for 60
+days. While you are actively applying this will not trigger, but if you go
+quiet for two months, re-enable it from the Actions tab.
+
+### Before anything that matters
+
+Automation is not a substitute for checking. Before an interview where you
+expect someone to open the link, visit it yourself an hour ahead and confirm it
+says **Running**. Ninety seconds of prevention.
