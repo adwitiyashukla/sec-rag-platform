@@ -298,7 +298,9 @@ class QueryEngine:
                 collected.append(piece)
                 yield {"event": "token", "data": {"text": piece}}
 
-            final = self.generator.finalise_streamed("".join(collected), contexts)
+            final = self.generator.finalise_streamed(
+                "".join(collected), contexts, has_verified_figures=bool(numeric)
+            )
             latency_ms = round((time.perf_counter() - started) * 1000, 2)
 
             # Store on the way out, on the same terms as the non-streaming

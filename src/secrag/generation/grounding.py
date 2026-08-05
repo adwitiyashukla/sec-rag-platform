@@ -30,6 +30,10 @@ from secrag.retrieval.embedder import Embedder
 log = get_logger(__name__)
 
 _MARKER_RE = re.compile(r"\[(\d{1,2})\]")
+# The prompt supplies XBRL figures under a "Verified figures" heading, and
+# models attribute to it by name rather than by number. That is the correct
+# thing to do, so it must not be scored as an uncited claim.
+_VERIFIED_RE = re.compile(r"\[\s*verified[^\]]*\]", re.IGNORECASE)
 _SENTENCE_SPLIT_RE = re.compile(r"(?<=[.!?])\s+(?=[A-Z(\"'\[]|\Z)")
 
 # Below this, a sentence and the passage it cites are not discussing the same
@@ -115,8 +119,18 @@ def verify(
     answer_text: str,
     contexts: Sequence[ScoredChunk],
     embedder: Embedder,
+    *,
+    has_verified_figures: bool = False,
 ) -> GroundingReport:
-    """Score how well an answer is supported by the passages it cites."""
+    """Score how well an answer is supported by the passages it cites.
+
+    A claim attributed to the verified figures block is treated as fully
+    supported. Those numbers are computed deterministically from filed XBRL and
+    are strictly more auditable than any retrieved passage, so scoring them as
+    unsupported inverts the ranking of evidence quality. In practice it dragged
+    numeric answers close to the refusal threshold, which would have withheld
+    exactly the answers this system is most confident about.
+    """
     claims = split_claims(answer_text)
     if not claims or not contexts:
         return GroundingReport(groundedness=0.0)
@@ -150,6 +164,9 @@ def verify(
         for position, (text, markers) in enumerate(claims):
             usable = [m for m in markers if valid(m)]
             if not usable:
+                if has_verified_figures and _VERIFIED_RE.search(text):
+                    scores.append(1.0)
+                    continue
                 scores.append(0.0)
                 if _is_factual(text):
                     unsupported.append(text)

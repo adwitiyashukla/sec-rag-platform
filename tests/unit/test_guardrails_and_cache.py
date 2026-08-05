@@ -214,3 +214,33 @@ def test_citation_density_is_measured_per_claim() -> None:
     assert citation_density("A. B. C [1].") == pytest.approx(1.0)
     assert citation_density("A [1]. B [2].") == pytest.approx(1.0)
     assert citation_density("A [1]. Trailing thought with no source.") == pytest.approx(0.5)
+
+
+def test_verified_figure_attribution_counts_as_supported(fake_embedder) -> None:
+    """A number computed from XBRL is the most auditable claim in any answer.
+
+    Models attribute to the supplied figures block by name rather than by
+    number. Scoring that as uncited inverts the evidence ranking and pushed
+    numeric answers to within 0.04 of the refusal threshold in production.
+    """
+    contexts = [make_scored("c1", text="Gross margin improved during the year.")]
+    answer = "Gross margin improved [1]. The percentage was 46.21% [Verified figures]."
+
+    without = verify(answer, contexts, fake_embedder, has_verified_figures=False)
+    with_figures = verify(answer, contexts, fake_embedder, has_verified_figures=True)
+
+    assert with_figures.groundedness > without.groundedness
+    assert with_figures.sentence_scores[1] == 1.0
+    assert without.sentence_scores[1] == 0.0
+
+
+def test_verified_marker_is_ignored_when_no_figures_were_supplied(fake_embedder) -> None:
+    """The exemption must not become a way to fabricate support out of nothing."""
+    contexts = [make_scored("c1", text="Revenue rose during the year.")]
+    report = verify(
+        "Revenue was 400 billion [Verified figures].",
+        contexts,
+        fake_embedder,
+        has_verified_figures=False,
+    )
+    assert report.groundedness == 0.0

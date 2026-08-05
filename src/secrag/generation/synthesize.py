@@ -86,6 +86,8 @@ class Generator:
         raw_text: str,
         contexts: Sequence[ScoredChunk],
         injection_report: injection.InjectionReport | None,
+        *,
+        has_verified_figures: bool = False,
     ) -> GenerationResult:
         """Redact, verify, and decide whether the answer is fit to return."""
         redaction = (
@@ -93,7 +95,12 @@ class Generator:
             if self.settings.enable_pii_redaction
             else pii.RedactionReport(text=raw_text)
         )
-        grounding = verify(redaction.text, contexts, self.embedder)
+        grounding = verify(
+            redaction.text,
+            contexts,
+            self.embedder,
+            has_verified_figures=has_verified_figures,
+        )
 
         status = AnswerStatus.OK
         refusal: str | None = None
@@ -160,7 +167,9 @@ class Generator:
                 temperature=self.settings.temperature,
                 max_tokens=self.settings.max_output_tokens,
             )
-        return self._finalise(completion.text, used, injection_report)
+        return self._finalise(
+            completion.text, used, injection_report, has_verified_figures=bool(numeric)
+        )
 
     async def stream(
         self,
@@ -188,9 +197,17 @@ class Generator:
             ):
                 yield piece
 
-    def finalise_streamed(self, text: str, contexts: Sequence[ScoredChunk]) -> GenerationResult:
+    def finalise_streamed(
+        self,
+        text: str,
+        contexts: Sequence[ScoredChunk],
+        *,
+        has_verified_figures: bool = False,
+    ) -> GenerationResult:
         """Verify a fully streamed answer."""
         if not contexts:
             return self._no_context()
         used, injection_report = self._prepare(contexts)
-        return self._finalise(text, used, injection_report)
+        return self._finalise(
+            text, used, injection_report, has_verified_figures=has_verified_figures
+        )
