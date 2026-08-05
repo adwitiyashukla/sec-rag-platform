@@ -28,7 +28,12 @@ from secrag.observability.tracing import span
 from secrag.retrieval.bm25 import BM25Index
 from secrag.retrieval.embedder import Embedder
 from secrag.retrieval.fusion import reciprocal_rank_fusion
-from secrag.retrieval.rerank import CrossEncoderReranker, Reranker, build_reranker
+from secrag.retrieval.rerank import (
+    CrossEncoderReranker,
+    LTRReranker,
+    Reranker,
+    build_reranker,
+)
 from secrag.retrieval.store import SearchFilter, VectorStore
 
 log = get_logger(__name__)
@@ -165,10 +170,27 @@ class HybridRetriever:
         return RetrievalResult(chunks=ranked, arms=arm_results, fused=fused, reranker=engine.name)
 
     def warmup(self) -> None:
-        """Load every model and index before the first request arrives."""
+        """Load every model and index before the first request arrives.
+
+        Every reranker is loaded, not just the default one. Warming only the
+        cross-encoder left the first learning-to-rank request paying the model
+        load itself, which measured around five seconds against roughly 150 ms
+        once warm. A user switching reranker in the UI met that delay and had
+        no way to know it was one-time.
+        """
         self.embedder.warmup()
         self.ensure_ready()
-        engine = self.reranker("cross_encoder")
-        if isinstance(engine, CrossEncoderReranker):
-            engine.warmup()
-        log.info("retriever_warm", corpus=self.corpus_size, bm25=self.bm25.size)
+
+        for name in ("cross_encoder", "ltr"):
+            engine = self.reranker(name)
+            if isinstance(engine, CrossEncoderReranker):
+                engine.warmup()
+            elif isinstance(engine, LTRReranker):
+                engine.booster  # noqa: B018 - touching the property forces the load
+
+        log.info(
+            "retriever_warm",
+            corpus=self.corpus_size,
+            bm25=self.bm25.size,
+            rerankers=sorted(self._rerankers),
+        )
