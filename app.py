@@ -38,6 +38,41 @@ import gradio as gr  # noqa: E402
 from secrag.core.types import QueryRequest  # noqa: E402
 from secrag.engine import build_engine  # noqa: E402
 
+# ---------------------------------------------------------------------------
+# ZeroGPU declaration
+#
+# Free Gradio Spaces are provisioned as ZeroGPU, and CPU Basic is now a paid
+# feature, so this is not a choice. ZeroGPU refuses to start unless at least
+# one @spaces.GPU function exists, and this pipeline deliberately has none:
+# every model runs on ONNX Runtime on CPU, which is the tradeoff recorded in
+# ADR 0001 and what keeps the image at 51 MB instead of gigabytes.
+#
+# So the function below is a diagnostic, not a workload. It reports whether a
+# GPU was attached and is never called on the answer path. Declaring it is the
+# honest way to satisfy the platform check; the alternative is pretending some
+# real work needs a GPU, which would allocate one on every query, add seconds
+# of scheduling latency, and consume a shared quota for nothing.
+#
+# The import is guarded so the same file runs unchanged off-platform.
+# ---------------------------------------------------------------------------
+try:
+    import spaces
+
+    @spaces.GPU(duration=10)
+    def gpu_diagnostic() -> str:
+        """Report GPU availability. Present to satisfy ZeroGPU, never on the hot path."""
+        try:
+            import onnxruntime
+
+            providers = onnxruntime.get_available_providers()
+        except Exception:  # pragma: no cover - diagnostic only
+            providers = []
+        return f"ONNX Runtime providers visible to this worker: {providers}"
+
+except ImportError:  # running locally, or on any host that is not a Space
+    gpu_diagnostic = None  # type: ignore[assignment]
+
+
 ENGINE = build_engine()
 ENGINE.warmup()
 STATS = ENGINE.stats()

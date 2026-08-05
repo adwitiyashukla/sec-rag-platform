@@ -31,3 +31,7 @@ lightgbm>=4.5.0
 # but keeping it here means `secrag serve` also works from inside the Space.
 fastapi>=0.115.0
 uvicorn[standard]>=0.32.0
+
+# Provided automatically by ZeroGPU Spaces. Listed so a local `pip install -r`
+# matches the Space, and imported defensively in app.py either way.
+spaces>=0.30.0 ; platform_system != "Windows"
