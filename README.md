@@ -150,18 +150,25 @@ language model invites a fabricated number.
 
 ### Answer quality
 
+Measured with the offline provider, which is why the numbers are reproducible.
+Retrieval and routing metrics do not involve a language model at all. Citation
+and groundedness metrics do, and the offline provider writes extractive answers,
+so they measure whether the citation and verification machinery works rather
+than how well a particular model writes. Configure a real provider and re-run
+`secrag eval` to measure that.
+
 <!-- EVAL:START -->
 33 golden cases against 3,629 indexed chunks, reranker `cross_encoder`, provider `echo:echo-1`.
 
 | Metric | Value | CI threshold | | What it means |
 |---|---:|---:|:--:|---|
-| Hit rate@6 | **0.879** | 0.75 | pass | at least one relevant passage in the top 6 |
-| nDCG@6 | **0.763** | 0.50 | pass | ranking quality |
-| MRR | **0.737** | 0.55 | pass | rank of the first relevant passage |
+| Hit rate@6 | **0.879** | 0.80 | pass | at least one relevant passage in the top 6 |
+| nDCG@6 | **0.763** | 0.68 | pass | ranking quality |
+| MRR | **0.737** | 0.65 | pass | rank of the first relevant passage |
 | Citation validity | **1.000** | 0.95 | pass | markers that point at a real source |
-| Groundedness | **0.781** | 0.35 | pass | answer sentences supported by their citation |
-| Numeric accuracy | **1.000** | 0.85 | pass | XBRL figures within tolerance |
-| Routing accuracy | **0.970** | 0.75 | pass | intent matched the golden label |
+| Groundedness | **0.781** | 0.65 | pass | answer sentences supported by their citation |
+| Numeric accuracy | **1.000** | 0.90 | pass | XBRL figures within tolerance |
+| Routing accuracy | **0.970** | 0.85 | pass | intent matched the golden label |
 | Refusal correctness | **0.970** | 0.85 | pass | declined exactly when it should |
 
 The gate passes. Thresholds live in [`evals/thresholds.json`](evals/thresholds.json) and are enforced by `secrag eval --gate` in CI.
