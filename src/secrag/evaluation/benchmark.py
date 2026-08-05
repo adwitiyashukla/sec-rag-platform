@@ -58,6 +58,21 @@ CONFIGURATIONS: tuple[Configuration, ...] = (
 )
 
 
+def resolve_arms(arms: Sequence[str], *, enable_splade: bool) -> tuple[str, ...]:
+    """Drop retrieval arms that are unavailable in this deployment.
+
+    Returning a reduced tuple rather than discarding the whole configuration
+    matters: the reranker rows list SPLADE among their arms but are really
+    measuring the reranker, so treating SPLADE as a hard requirement removed
+    the single most useful comparison in the table from the default
+    deployment, where SPLADE is switched off.
+
+    An empty result means the configuration was *only* the unavailable arm and
+    genuinely cannot run.
+    """
+    return tuple(a for a in arms if a != "splade" or enable_splade)
+
+
 @dataclass(slots=True)
 class ConfigurationResult:
     name: str
@@ -101,7 +116,9 @@ async def run_benchmark(
     results: list[ConfigurationResult] = []
 
     for config in CONFIGURATIONS:
-        if "splade" in config.arms and not settings.enable_splade:
+        arms = resolve_arms(config.arms, enable_splade=settings.enable_splade)
+
+        if not arms:
             results.append(
                 ConfigurationResult(
                     name=config.name,
@@ -113,6 +130,8 @@ async def run_benchmark(
                 )
             )
             continue
+
+        reduced = arms != config.arms
 
         if config.reranker == "ltr" and not engine.retriever.reranker("ltr").is_available:
             results.append(
@@ -137,7 +156,7 @@ async def run_benchmark(
                 case.question,
                 top_k=k,
                 flt=flt,
-                arms=config.arms,
+                arms=arms,
                 reranker=config.reranker,
             )
             latencies.append((time.perf_counter() - started) * 1000.0)
@@ -154,8 +173,9 @@ async def run_benchmark(
             ConfigurationResult(
                 name=config.name,
                 description=config.description,
-                arms=list(config.arms),
+                arms=list(arms),
                 reranker=config.reranker,
+                note="ran without the SPLADE arm" if reduced else "",
                 # The LTR model is fitted on these same golden queries, so its
                 # score here is training-set performance and is optimistic by
                 # construction. The honest estimate is the grouped
@@ -209,11 +229,19 @@ def to_markdown(results: Sequence[ConfigurationResult], k: int) -> str:
             lines.append(f"| {result.name} | _{result.note}_ | | | | | |")
             continue
         label = result.name + (" \\*" if result.in_sample else "")
+        if result.note == "ran without the SPLADE arm":
+            label += " \\*\\*"
         has_in_sample = has_in_sample or result.in_sample
         lines.append(
             f"| {label} | {result.ndcg:.3f} | {result.hit_rate:.3f} | "
             f"{result.mrr:.3f} | {result.precision:.3f} | "
             f"{result.mean_latency_ms:.0f} | {result.p95_latency_ms:.0f} |"
+        )
+
+    if any(r.note == "ran without the SPLADE arm" for r in results if r.available):
+        lines.append("")
+        lines.append(
+            "\\*\\* Ran with the SPLADE arm disabled, so this row reflects dense plus BM25 only."
         )
 
     if has_in_sample:
@@ -241,6 +269,8 @@ def _render(results: Sequence[ConfigurationResult], console: Console, k: int) ->
             continue
         highlight = "[bold green]" if result.ndcg == best_ndcg else ""
         suffix = " [yellow](in-sample)[/yellow]" if result.in_sample else ""
+        if result.note == "ran without the SPLADE arm":
+            suffix += " [dim](no splade)[/dim]"
         closing = "[/bold green]" if highlight else ""
         table.add_row(
             result.name + suffix,

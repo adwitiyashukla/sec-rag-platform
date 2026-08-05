@@ -96,3 +96,38 @@ def test_accumulator_skips_none() -> None:
     acc.add("x", 0.0)
     assert acc.count("x") == 2
     assert acc.mean("x") == pytest.approx(0.5)
+
+
+# ------------------------------------------------- benchmark arm resolution
+
+
+def test_disabled_splade_is_dropped_not_fatal() -> None:
+    """The reranker rows must still run when SPLADE is switched off.
+
+    Treating SPLADE as a hard requirement removed both reranker rows from the
+    ablation in the default deployment, which is exactly where the comparison
+    is needed.
+    """
+    from secrag.evaluation.benchmark import resolve_arms
+
+    assert resolve_arms(("dense", "bm25", "splade"), enable_splade=False) == ("dense", "bm25")
+    assert resolve_arms(("dense", "bm25", "splade"), enable_splade=True) == (
+        "dense",
+        "bm25",
+        "splade",
+    )
+
+
+def test_splade_only_config_is_empty_when_disabled() -> None:
+    """A configuration that is only the unavailable arm genuinely cannot run."""
+    from secrag.evaluation.benchmark import resolve_arms
+
+    assert resolve_arms(("splade",), enable_splade=False) == ()
+    assert resolve_arms(("splade",), enable_splade=True) == ("splade",)
+
+
+def test_configs_without_splade_are_untouched() -> None:
+    from secrag.evaluation.benchmark import resolve_arms
+
+    assert resolve_arms(("dense",), enable_splade=False) == ("dense",)
+    assert resolve_arms(("dense", "bm25"), enable_splade=False) == ("dense", "bm25")
