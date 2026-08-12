@@ -1,15 +1,3 @@
-"""PII redaction.
-
-Applied to model output rather than to the corpus. Redacting at ingestion would
-destroy legitimate content, since filings contain company phone numbers and
-addresses by regulatory requirement. Redacting at the boundary catches the case
-that actually matters: a value that reaches a user or a log.
-
-Patterns are deliberately conservative. A false positive here silently corrupts
-a real figure in an answer, which is worse than the leak it was guarding
-against, so anything ambiguous is left alone.
-"""
-
 from __future__ import annotations
 
 import re
@@ -50,7 +38,6 @@ class RedactionReport:
 
 
 def redact(text: str) -> RedactionReport:
-    """Replace recognised PII. Returns the cleaned text and what was removed."""
     counts: dict[str, int] = {}
     cleaned = text
     for name, pattern, replacement in _RULES:

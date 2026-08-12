@@ -236,7 +236,7 @@ function renderSources(contexts) {
       <div class="src-head">
         <span class="src-n">${i + 1}</span>
         <span class="src-label">${esc(c.label)}</span>
-        <span class="src-score">${arms} &middot; ${Number(c.score).toFixed(3)}</span>
+        <span class="src-score">${arms} score ${Number(c.score).toFixed(3)}</span>
       </div>
       <div class="src-body ${c.kind === "table" ? "table" : ""}">${esc(c.text)}</div>
     </div>`;

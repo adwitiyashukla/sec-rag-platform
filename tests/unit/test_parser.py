@@ -1,5 +1,3 @@
-"""HTML parsing and section assignment."""
-
 from __future__ import annotations
 
 import pytest
@@ -74,20 +72,15 @@ def test_empty_document_raises() -> None:
 
 
 def test_private_use_glyphs_are_stripped() -> None:
-    """Filings encode bullets as Wingdings glyphs in the private use area.
-
-    They render as replacement characters in every other font and would
-    otherwise survive into chunks, embeddings, and quoted citations.
-    """
     html = (
-        "<html><body><p>Products launched in the quarter:  iPhone 16; "
-        " Apple Watch Series 10; and  AirPods. "
+        "<html><body><p>Products launched in the quarter: \uf0b7 iPhone 16; "
+        "\uf0a7 Apple Watch Series 10; and \uf0b7 AirPods. "
         "These contributed to net sales growth during the period.</p></body></html>"
     )
     blocks = extract_blocks(html)
     combined = " ".join(b.text for b in blocks)
 
-    assert "" not in combined
-    assert "" not in combined
+    assert "\uf0b7" not in combined
+    assert "\uf0a7" not in combined
     assert "iPhone 16" in combined
     assert "Apple Watch Series 10" in combined

@@ -1,5 +1,3 @@
-"""Rank fusion and evaluation metrics."""
-
 from __future__ import annotations
 
 import pytest
@@ -15,15 +13,11 @@ def test_rrf_promotes_documents_found_by_several_arms() -> None:
 
     fused = reciprocal_rank_fusion({"dense": dense, "bm25": bm25}, k=60)
 
-    # "b" is second in both lists; "a" and "c" are first in one each. Agreement
-    # across arms is exactly what RRF is designed to reward.
     assert fused[0].chunk.chunk_id == "b"
 
 
 def test_rrf_preserves_component_scores_for_downstream_features() -> None:
     dense = [make_scored("a", 0.9, rank=1)]
-    # Rank comes from list position, so "a" third in the BM25 list means two
-    # other documents precede it.
     bm25 = [
         make_scored("x", 20.0, "bm25", 1),
         make_scored("y", 15.0, "bm25", 2),
@@ -39,7 +33,6 @@ def test_rrf_preserves_component_scores_for_downstream_features() -> None:
 
 
 def test_rrf_is_score_scale_invariant() -> None:
-    """The reason to fuse on rank: BM25 and cosine live on incomparable scales."""
     small = [make_scored("a", 0.01, "bm25", 1), make_scored("b", 0.005, "bm25", 2)]
     large = [make_scored("a", 1000.0, "bm25", 1), make_scored("b", 500.0, "bm25", 2)]
     dense = [make_scored("b", 0.9, rank=1)]
@@ -85,7 +78,6 @@ def test_numeric_accuracy_respects_tolerance() -> None:
     assert metrics.numeric_accuracy(100.5, 100.0, tolerance_pct=1.0) == 1.0
     assert metrics.numeric_accuracy(105.0, 100.0, tolerance_pct=1.0) == 0.0
     assert metrics.numeric_accuracy(None, 100.0) == 0.0
-    # Not a numeric case: excluded rather than counted as a failure.
     assert metrics.numeric_accuracy(100.0, None) is None
 
 
@@ -98,16 +90,7 @@ def test_accumulator_skips_none() -> None:
     assert acc.mean("x") == pytest.approx(0.5)
 
 
-# ------------------------------------------------- benchmark arm resolution
-
-
 def test_disabled_splade_is_dropped_not_fatal() -> None:
-    """The reranker rows must still run when SPLADE is switched off.
-
-    Treating SPLADE as a hard requirement removed both reranker rows from the
-    ablation in the default deployment, which is exactly where the comparison
-    is needed.
-    """
     from secrag.evaluation.benchmark import resolve_arms
 
     assert resolve_arms(("dense", "bm25", "splade"), enable_splade=False) == ("dense", "bm25")
@@ -119,7 +102,6 @@ def test_disabled_splade_is_dropped_not_fatal() -> None:
 
 
 def test_splade_only_config_is_empty_when_disabled() -> None:
-    """A configuration that is only the unavailable arm genuinely cannot run."""
     from secrag.evaluation.benchmark import resolve_arms
 
     assert resolve_arms(("splade",), enable_splade=False) == ()

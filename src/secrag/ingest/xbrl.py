@@ -1,20 +1,3 @@
-"""XBRL structured financial facts.
-
-This is the piece that stops the system inventing numbers.
-
-Language models are unreliable at reading figures out of 10-K tables. The
-tables are large, deeply nested, span several periods, and use scaling
-footnotes ("in millions, except per share data") that sit far away from the
-figures they govern. A model asked for revenue growth will usually produce
-something plausible and wrong.
-
-The SEC publishes the same figures as structured XBRL data. So numeric
-questions are not answered from prose at all: the fact is looked up, the
-arithmetic is done in pandas, and the result carries its formula and inputs so
-a user can audit it without trusting the model. Retrieval still supplies the
-narrative context around the number.
-"""
-
 from __future__ import annotations
 
 from collections.abc import Sequence
@@ -32,9 +15,6 @@ from secrag.observability.tracing import span
 
 log = get_logger(__name__)
 
-# Companies tag the same economic concept differently, and the tag they use can
-# change between years. Each logical metric therefore maps to an ordered list of
-# US-GAAP tags, tried most-specific first.
 CONCEPT_ALIASES: dict[str, tuple[str, ...]] = {
     "revenue": (
         "RevenueFromContractWithCustomerExcludingAssessedTax",
@@ -74,10 +54,6 @@ METRIC_LABELS = {
 }
 
 
-# An annual period is nominally 365 days, but fiscal calendars use 52 and 53
-# week years and companies occasionally file transition periods. This window
-# accepts genuine annual periods while excluding quarters, which is the
-# distinction that actually matters.
 _MIN_ANNUAL_DAYS = 340
 _MAX_ANNUAL_DAYS = 400
 
@@ -90,24 +66,6 @@ def _parse_date(value: object) -> date | None:
 
 
 def _annual_period(obs: dict[str, Any]) -> tuple[int, int] | None:
-    """Return (fiscal_year, duration_days) if this observation is annual.
-
-    Fiscal year is taken from the calendar year the period *ends* in. That is
-    the convention US filers actually use, verified against real data rather
-    than reasoned about: NVIDIA's year ending 26 January 2025 is its fiscal
-    2025, and Walmart's year ending 31 January 2026 is its fiscal 2026.
-
-    An earlier version labelled by the period midpoint, on the theory that a
-    February-to-January year belongs to the calendar year holding most of it.
-    That is defensible in the abstract and wrong in practice: it shifted every
-    January-year-end filer back by one, so NVIDIA's 130.5 billion fiscal 2025
-    was filed under FY2024 and silently disagreed with the chunk metadata,
-    which takes its year from the filing's own report date.
-
-    Balance sheet concepts are instants with no start date. They are dated by
-    their measurement date, which is the fiscal year end, so they are accepted
-    with a duration of zero.
-    """
     end = _parse_date(obs.get("end"))
     if end is None:
         return None
@@ -138,8 +96,6 @@ class Fact:
 
 
 class FactStore:
-    """A tidy table of company facts with a small analytics layer on top."""
-
     COLUMNS = (
         "ticker",
         "company",
@@ -156,46 +112,15 @@ class FactStore:
     def __init__(self, frame: pd.DataFrame | None = None) -> None:
         self.df = frame if frame is not None else pd.DataFrame(columns=list(self.COLUMNS))
 
-    # -- construction -----------------------------------------------------
-
     @classmethod
     def from_company_facts(
         cls, payload: dict[str, Any], ticker: str, existing: pd.DataFrame | None = None
     ) -> FactStore:
-        """Flatten the EDGAR companyfacts document into tidy annual rows.
-
-        Two details here are the difference between correct figures and
-        confidently wrong ones:
-
-        Period selection. Each observation carries "fp" and "fy", but those
-        describe the *report* the fact appeared in, not the period the fact
-        covers. A 10-K also tags its fourth-quarter figures, and those carry
-        fp="FY" and form="10-K" too. Filtering on those fields alone silently
-        admits quarterly values as annual ones. Apple's FY2020 revenue then
-        reads as 64.7 billion, its Q4 number, instead of 274.5 billion, and
-        every growth rate computed from it is wrong while looking entirely
-        plausible. Annual facts are therefore selected by measuring the actual
-        start-to-end duration.
-
-        Fiscal year labelling. The year is taken from the period midpoint
-        rather than its end date, so companies whose fiscal year closes in
-        January are not shifted a year forward.
-        """
         company = str(payload.get("entityName", ticker))
         us_gaap = payload.get("facts", {}).get("us-gaap", {})
         rows: list[dict[str, Any]] = []
 
         for metric, aliases in CONCEPT_ALIASES.items():
-            # Alias preference is resolved per fiscal year, not per concept.
-            #
-            # Stopping at the first alias that yields any data at all looks
-            # reasonable and silently loses years. NVIDIA tagged revenue as
-            # RevenueFromContractWithCustomerExcludingAssessedTax through
-            # fiscal 2022 and as Revenues from fiscal 2023 onward. Breaking on
-            # the first alias found the old tag, stopped, and dropped every
-            # recent year including the 130.5 billion fiscal 2025. Companies
-            # change their tagging, so every alias is collected and the
-            # highest-priority one available for each year wins.
             for priority, concept in enumerate(aliases):
                 entry = us_gaap.get(concept)
                 if not entry:
@@ -233,9 +158,6 @@ class FactStore:
 
         frame = pd.DataFrame(rows)
         if not frame.empty:
-            # Sorted so the winner per (ticker, metric, year) is the most
-            # preferred alias, and within that the most recently filed value,
-            # which is what picks up restatements.
             frame = (
                 frame.sort_values(
                     ["_priority", "_filed", "accession"], ascending=[False, True, True]
@@ -259,12 +181,6 @@ class FactStore:
         return store
 
     def _warn_on_implausible(self, ticker: str) -> None:
-        """Flag year-over-year jumps that suggest a period mismatch.
-
-        A genuine annual revenue change above 200 percent is rare; a period
-        selection bug produces them constantly. Logging it turns a silent data
-        error into something visible during ingestion.
-        """
         if self.df.empty:
             return
         for metric in ("revenue", "net_income", "total_assets"):
@@ -282,8 +198,6 @@ class FactStore:
                 )
         log.info("xbrl_facts_loaded", ticker=ticker, rows=len(self.df))
 
-    # -- persistence ------------------------------------------------------
-
     def save(self, settings: Settings | None = None) -> None:
         settings = settings or get_settings()
         settings.ensure_dirs()
@@ -296,8 +210,6 @@ class FactStore:
         if not path.exists():
             return cls()
         return cls(pd.read_parquet(path))
-
-    # -- queries ----------------------------------------------------------
 
     @property
     def is_empty(self) -> bool:
@@ -345,8 +257,6 @@ class FactStore:
         ]
         return max(years) if years else None
 
-    # -- analytics --------------------------------------------------------
-
     def value_of(self, ticker: str, metric: str, fiscal_year: int) -> NumericResult:
         fact = self.get(ticker, metric, fiscal_year)
         label = f"{METRIC_LABELS.get(metric, metric)} for {ticker.upper()} FY{fiscal_year}"
@@ -363,7 +273,6 @@ class FactStore:
         )
 
     def growth(self, ticker: str, metric: str, start_year: int, end_year: int) -> NumericResult:
-        """Percentage change between two fiscal years."""
         label = (
             f"{METRIC_LABELS.get(metric, metric)} growth for "
             f"{ticker.upper()} FY{start_year} to FY{end_year}"
@@ -423,7 +332,6 @@ class FactStore:
         return [self.value_of(t, metric, fiscal_year) for t in tickers]
 
     def series(self, ticker: str, metric: str) -> pd.DataFrame:
-        """Full annual series for one metric, with year-over-year change."""
         if self.is_empty:
             return pd.DataFrame(columns=["fiscal_year", "value", "yoy_pct"])
         subset = (
@@ -439,13 +347,10 @@ class FactStore:
 
 
 async def build_fact_store(tickers: Sequence[str], settings: Settings | None = None) -> FactStore:
-    """Fetch and flatten XBRL facts for each ticker."""
     from secrag.ingest.edgar import EdgarClient
 
     settings = settings or get_settings()
 
-    # Seed from what is already on disk. Building from None means ingesting a
-    # single new ticker silently deletes the facts for every other company.
     existing = FactStore.load(settings)
     frame: pd.DataFrame | None = None if existing.is_empty else existing.df
 

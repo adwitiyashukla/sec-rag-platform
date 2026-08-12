@@ -1,5 +1,3 @@
-"""XBRL fact selection and numeric planning."""
-
 from __future__ import annotations
 
 import pytest
@@ -34,11 +32,7 @@ def obs(start: str, end: str, val: float, **kw) -> dict:
     }
 
 
-# ------------------------------------------------------------ period logic
-
-
 def test_quarterly_observations_are_rejected() -> None:
-    """The bug this guards: a 10-K also tags its Q4 figures with fp=FY."""
     assert _annual_period(obs("2024-06-30", "2024-09-28", 64_698_000_000)) is None
 
 
@@ -56,32 +50,18 @@ def test_balance_sheet_instants_are_accepted() -> None:
 
 
 def test_january_fiscal_year_end_is_labelled_by_its_ending_year() -> None:
-    """US filers name a January-ending year after the year it ends in.
-
-    NVIDIA's year ending 26 January 2025 is its fiscal 2025, and Walmart's year
-    ending 31 January 2026 is its fiscal 2026. Labelling by the period midpoint
-    instead shifts both back a year, which silently disagrees with the chunk
-    metadata taken from the filing's own report date.
-    """
     assert _annual_period(obs("2024-01-29", "2025-01-26", 130_497_000_000))[0] == 2025
     assert _annual_period(obs("2025-02-01", "2026-01-31", 700_000_000_000))[0] == 2026
 
 
 def test_concept_switch_between_years_does_not_lose_data() -> None:
-    """NVIDIA changed its revenue tag in 2023. Both eras must survive.
-
-    Stopping at the first alias that yields any data found the pre-2023 tag,
-    stopped there, and dropped every later year.
-    """
     payload = {
         "entityName": "NVIDIA Corporation",
         "facts": {
             "us-gaap": {
-                # Canonical alias, used only for the earlier years.
                 "RevenueFromContractWithCustomerExcludingAssessedTax": {
                     "units": {"USD": [obs("2021-02-01", "2022-01-30", 26_914_000_000)]}
                 },
-                # Fallback alias, used for the later years.
                 "Revenues": {
                     "units": {
                         "USD": [
@@ -120,7 +100,7 @@ def test_quarterly_facts_do_not_reach_the_fact_table() -> None:
     payload = companyfacts(
         [
             obs("2023-10-01", "2024-09-28", 391_035_000_000),
-            obs("2024-06-30", "2024-09-28", 64_698_000_000),  # Q4, must be excluded
+            obs("2024-06-30", "2024-09-28", 64_698_000_000),
         ]
     )
     store = FactStore.from_company_facts(payload, "AAPL")
@@ -138,9 +118,6 @@ def test_restatement_prefers_the_latest_filing() -> None:
     )
     store = FactStore.from_company_facts(payload, "AAPL")
     assert store.get("AAPL", "revenue", 2023).value == 110.0
-
-
-# --------------------------------------------------------------- analytics
 
 
 @pytest.fixture
@@ -173,9 +150,6 @@ def test_series_reports_year_over_year(store: FactStore) -> None:
     frame = store.series("AAPL", "revenue")
     assert list(frame["fiscal_year"]) == [2022, 2023, 2024]
     assert frame["yoy_pct"].iloc[-1] == pytest.approx(11.11, abs=0.01)
-
-
-# ----------------------------------------------------------------- planner
 
 
 def test_plan_detects_value_lookup(store: FactStore) -> None:

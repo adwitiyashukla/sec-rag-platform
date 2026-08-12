@@ -1,20 +1,3 @@
-"""Reranking.
-
-Fusion produces a good candidate set but a mediocre ordering, because no fusion
-rule ever looks at the query and the passage together. A reranker does, and it
-is usually the single largest quality win available in a RAG pipeline.
-
-Two implementations are provided so they can be compared rather than assumed:
-
-- A neural cross-encoder, which jointly encodes query and passage. Most
-  accurate, and the most expensive, since cost scales with candidate count.
-- A gradient-boosted LambdaMART model over cheap retrieval features. Orders of
-  magnitude faster and needs no model download, at some cost in accuracy.
-
-The benchmark in the README reports both on the same golden set, which is the
-only honest way to make that tradeoff.
-"""
-
 from __future__ import annotations
 
 import threading
@@ -36,7 +19,7 @@ class Reranker(ABC):
 
     @abstractmethod
     def rerank(self, query: str, candidates: list[ScoredChunk], top_n: int) -> list[ScoredChunk]:
-        """Reorder candidates and return the best top_n."""
+        pass
 
     @property
     def is_available(self) -> bool:
@@ -44,8 +27,6 @@ class Reranker(ABC):
 
 
 class NoOpReranker(Reranker):
-    """Keeps fusion order. The baseline every other reranker is measured against."""
-
     name = "none"
 
     def rerank(self, query: str, candidates: list[ScoredChunk], top_n: int) -> list[ScoredChunk]:
@@ -53,8 +34,6 @@ class NoOpReranker(Reranker):
 
 
 class CrossEncoderReranker(Reranker):
-    """ONNX cross-encoder over (query, passage) pairs."""
-
     name = "cross_encoder"
 
     def __init__(self, settings: Settings | None = None) -> None:
@@ -81,8 +60,6 @@ class CrossEncoderReranker(Reranker):
         if not candidates:
             return []
 
-        # Cross-encoder cost is linear in candidates, so the candidate set is
-        # capped before scoring rather than after.
         pool = candidates[: self.settings.rerank_candidates]
         with span("rerank_cross_encoder", candidates=len(pool)):
             documents = [c.chunk.contextual_text() for c in pool]
@@ -101,12 +78,10 @@ class CrossEncoderReranker(Reranker):
         ]
 
     def warmup(self) -> None:
-        self.model  # noqa: B018 - touching the property forces the load
+        _ = self.model
 
 
 class LTRReranker(Reranker):
-    """LambdaMART reranker over retrieval features."""
-
     name = "ltr"
 
     def __init__(self, model_path: Path | None = None, settings: Settings | None = None) -> None:
@@ -135,8 +110,6 @@ class LTRReranker(Reranker):
     def rerank(self, query: str, candidates: list[ScoredChunk], top_n: int) -> list[ScoredChunk]:
         booster = self.booster
         if booster is None or not candidates:
-            # Degrading to fusion order is the correct failure mode: an
-            # untrained ranker should never make results worse than no ranker.
             return candidates[:top_n]
 
         with span("rerank_ltr", candidates=len(candidates)):

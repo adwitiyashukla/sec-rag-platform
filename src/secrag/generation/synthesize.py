@@ -1,21 +1,3 @@
-"""Answer synthesis.
-
-Sequence, and the reason for each step:
-
-    contexts -> injection scan -> prompt -> LLM -> PII redaction
-             -> groundedness verification -> accept or refuse
-
-The verification step runs after generation rather than before, because the
-thing being checked is the model's output, not its input. A model that produces
-a fluent answer citing passages that do not support it has failed in the way
-that matters most on financial data, and no amount of prompt engineering
-detects that reliably. Measuring it does.
-
-Refusing is treated as a successful outcome, not an error. On filings, "the
-filing does not state this" is frequently the correct answer, and a system that
-cannot say it will invent one instead.
-"""
-
 from __future__ import annotations
 
 from collections.abc import AsyncIterator, Sequence
@@ -37,8 +19,6 @@ log = get_logger(__name__)
 
 @dataclass(slots=True)
 class GenerationResult:
-    """The answer plus everything needed to audit how it was produced."""
-
     answer: Answer
     contexts: list[ScoredChunk] = field(default_factory=list)
     injection: injection.InjectionReport | None = None
@@ -47,8 +27,6 @@ class GenerationResult:
 
 
 class Generator:
-    """Turns retrieved context into a cited, verified answer."""
-
     def __init__(
         self,
         settings: Settings | None = None,
@@ -59,12 +37,9 @@ class Generator:
         self.provider = provider or build_chain(self.settings)
         self.embedder = embedder or Embedder(self.settings)
 
-    # -- helpers ----------------------------------------------------------
-
     def _prepare(
         self, contexts: Sequence[ScoredChunk]
     ) -> tuple[list[ScoredChunk], injection.InjectionReport | None]:
-        """Scan retrieved content and drop anything carrying instructions."""
         if not self.settings.enable_injection_detection:
             return list(contexts), None
         report = injection.scan_contexts(contexts)
@@ -89,7 +64,6 @@ class Generator:
         *,
         has_verified_figures: bool = False,
     ) -> GenerationResult:
-        """Redact, verify, and decide whether the answer is fit to return."""
         redaction = (
             pii.redact(raw_text)
             if self.settings.enable_pii_redaction
@@ -149,8 +123,6 @@ class Generator:
             )
         )
 
-    # -- generation -------------------------------------------------------
-
     async def generate(
         self,
         question: str,
@@ -177,13 +149,6 @@ class Generator:
         contexts: Sequence[ScoredChunk],
         numeric: Sequence[NumericResult] = (),
     ) -> AsyncIterator[str]:
-        """Yield answer tokens as they arrive.
-
-        Verification cannot run until the answer is complete, so a streamed
-        response is necessarily unverified while it is being produced. The
-        caller is expected to call finalise_streamed once the stream ends and
-        to present the verdict alongside the text.
-        """
         if not contexts:
             yield REFUSAL_NO_CONTEXT
             return
@@ -204,7 +169,6 @@ class Generator:
         *,
         has_verified_figures: bool = False,
     ) -> GenerationResult:
-        """Verify a fully streamed answer."""
         if not contexts:
             return self._no_context()
         used, injection_report = self._prepare(contexts)

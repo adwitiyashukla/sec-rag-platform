@@ -6,7 +6,7 @@
 [![Evaluation gate](https://github.com/adwitiyashukla/sec-rag-platform/actions/workflows/eval.yml/badge.svg)](https://github.com/adwitiyashukla/sec-rag-platform/actions/workflows/eval.yml)
 [![Python 3.11+](https://img.shields.io/badge/python-3.11%20|%203.12%20|%203.13-blue)](https://www.python.org)
 [![License: MIT](https://img.shields.io/badge/license-MIT-green)](LICENSE)
-[![Live demo](https://img.shields.io/badge/%F0%9F%A4%97%20demo-Hugging%20Face-yellow)](https://huggingface.co/spaces/adwitiyashukla/sec-rag-platform)
+[![Live demo](https://img.shields.io/badge/demo-Hugging%20Face-yellow)](https://huggingface.co/spaces/adwitiyashukla/sec-rag-platform)
 
 **[Try the live demo](https://huggingface.co/spaces/adwitiyashukla/sec-rag-platform)**
 
@@ -196,10 +196,8 @@ FY2020 revenue then reads as **64.7 billion**, its Q4 figure, instead of
 entirely reasonable. FY2021 growth showed as 465 percent.
 
 The fix selects annual facts by measuring each observation's actual
-start-to-end duration, and labels fiscal years by the period midpoint so a
-January year-end is not shifted forward. See
-[ADR 0003](docs/adr/0003-xbrl-for-numbers.md) and
-`tests/unit/test_xbrl_and_planner.py`.
+start-to-end duration, and labels fiscal years by the calendar year the period
+ends in. Covered by `tests/unit/test_xbrl_and_planner.py`.
 
 ### The query prefix that is silently missing
 
@@ -209,8 +207,7 @@ all return identical vectors, verified by comparison. The correctly prefixed
 query differs from the unprefixed one at cosine **0.969**.
 
 Omitting it is not an error. Retrieval still returns results, they are simply
-measurably worse. It is applied explicitly in `Embedder.embed_query` for that
-reason. See [ADR 0001](docs/adr/0001-onnx-over-pytorch.md).
+measurably worse. It is applied explicitly in `Embedder.embed_query`.
 
 ---
 
@@ -258,21 +255,6 @@ The whole test and evaluation suite runs offline. `EchoProvider` parses the
 retrieved context out of the prompt and composes a real extractive answer with
 real citations, so citation validity, groundedness, and refusal logic are all
 exercised without a network call. That is why CI needs no secrets.
-
----
-
-## Design decisions
-
-Each of these is written up with its tradeoffs and what was given up:
-
-| ADR | Decision |
-|---|---|
-| [0001](docs/adr/0001-onnx-over-pytorch.md) | ONNX Runtime instead of PyTorch: a 51 MB inference stack instead of one measured in gigabytes |
-| [0002](docs/adr/0002-hybrid-retrieval-rrf.md) | Fuse retrieval arms by rank, not by score |
-| [0003](docs/adr/0003-xbrl-for-numbers.md) | Compute figures from XBRL, never generate them |
-| [0004](docs/adr/0004-groundedness-without-a-judge.md) | Verify groundedness deterministically, without a judge model |
-| [0005](docs/adr/0005-deterministic-offline-provider.md) | Ship a deterministic offline provider so CI needs no keys |
-| [0006](docs/adr/0006-embedded-qdrant.md) | Embedded Qdrant, with BM25 derived from it |
 
 ---
 

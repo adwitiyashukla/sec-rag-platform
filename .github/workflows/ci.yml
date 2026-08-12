@@ -12,9 +12,6 @@ concurrency:
 
 env:
   PYTHONUNBUFFERED: "1"
-  # No provider keys are set anywhere in CI. The suite runs against the
-  # deterministic offline provider, which is the point: a green run needs no
-  # secrets and cannot be flaky because of someone else's rate limit.
   SECRAG_LLM_PROVIDERS: echo
   SECRAG_ENABLE_SPLADE: "false"
 
@@ -48,9 +45,6 @@ jobs:
         run: ruff format --check src tests
 
       - name: Mypy (strict)
-        # Run on one interpreter only. numpy ships stubs using PEP 695 syntax
-        # that mypy rejects when parsed under 3.11, which produced a red step
-        # inside an otherwise green job and made the run log misleading.
         if: matrix.python-version == '3.12'
         run: mypy src
 

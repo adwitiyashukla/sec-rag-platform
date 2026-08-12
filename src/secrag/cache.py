@@ -1,22 +1,3 @@
-"""Semantic cache.
-
-An exact-match cache is nearly useless for natural language, because two users
-asking the same thing almost never type the same string. Matching on embedding
-similarity instead turns "What are Apple's main risks?" and "What risk factors
-did Apple disclose?" into one cache hit.
-
-On a free tier this is not an optimisation, it is a capacity multiplier: Groq
-allows 30 requests per minute, and a cache hit costs zero of them.
-
-Two details keep it from being actively harmful:
-
-- Entries are partitioned by retrieval filter. A cached answer about Apple must
-  never be served to a question scoped to Microsoft, however similar the
-  wording, so the filter is part of the key rather than part of the similarity.
-- The threshold is high by default (0.96). A semantic cache that is too eager
-  answers a question the user did not ask, which is far worse than a miss.
-"""
-
 from __future__ import annotations
 
 import time
@@ -76,8 +57,6 @@ class CacheStats:
 
 
 class SemanticCache:
-    """Embedding-similarity cache over query responses."""
-
     def __init__(self, settings: Settings | None = None, embedder: Embedder | None = None) -> None:
         self.settings = settings or get_settings()
         self.embedder = embedder or Embedder(self.settings)
@@ -95,8 +74,6 @@ class SemanticCache:
     def clear(self) -> None:
         self._partitions.clear()
         self.stats = CacheStats()
-
-    # -- lookup -----------------------------------------------------------
 
     def get(self, question: str, partition: str = "") -> QueryResponse | None:
         if not self.enabled:
@@ -162,7 +139,6 @@ class SemanticCache:
 
 
 def partition_key(tickers: list[str], fiscal_years: list[int], sections: list[str]) -> str:
-    """Stable key for a retrieval filter, so caches never cross scopes."""
     return "|".join(
         (
             ",".join(sorted(t.upper() for t in tickers)),

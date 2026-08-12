@@ -1,17 +1,5 @@
 name: Keep Spaces awake
 
-# Free Hugging Face Spaces sleep after 48 hours of inactivity, and a sleeping
-# Space takes a minute or two to wake when someone visits. That is a poor first
-# impression for anyone clicking a link on a CV.
-#
-# Any HTTP request counts as activity, so pinging every 12 hours keeps a Space
-# permanently inside the window. Twice the necessary rate, deliberately: one
-# missed run then costs nothing.
-#
-# Add more Spaces to the SPACES list below as you publish them. The direct
-# *.hf.space host is used rather than the huggingface.co page, because that
-# page can render from cache without ever touching the container.
-
 on:
   schedule:
     - cron: "0 */12 * * *"
@@ -36,9 +24,6 @@ jobs:
             echo "----------------------------------------------------------"
             echo "Pinging $url"
 
-            # A sleeping Space returns quickly with a holding page and starts
-            # booting in the background, so a generous timeout is not needed
-            # here; the point is to trigger the wake, not to wait for it.
             code=$(curl -s -o /dev/null -w "%{http_code}" -L --max-time 90 "$url" || echo "000")
 
             case "$code" in

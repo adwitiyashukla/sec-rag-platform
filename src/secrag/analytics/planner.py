@@ -1,19 +1,3 @@
-"""Numeric query planning.
-
-Turns a numeric question into an explicit, executable plan against the XBRL
-fact table.
-
-This layer is rule-based on purpose, and the choice is worth defending. The
-router that decides a question *is* numeric is a learned model, because intent
-is fuzzy and phrasing varies without limit. But once that decision is made,
-mapping "gross margin" to gross_profit divided by revenue is a definition, not
-a prediction. Learning it would add a failure mode to something that has an
-exact answer, and the resulting figures are meant to be auditable.
-
-If the plan cannot be resolved with confidence, it returns None and the query
-falls back to ordinary retrieval. Refusing to guess is the point.
-"""
-
 from __future__ import annotations
 
 import re
@@ -30,7 +14,6 @@ Operation = Literal["value", "growth", "cagr", "ratio", "series"]
 
 _YEAR_RE = re.compile(r"\b(?:fy\s?)?((?:19|20)\d{2})\b", re.IGNORECASE)
 
-# Longest phrases first, so "operating cash flow" is not shadowed by "cash".
 _METRIC_PHRASES: tuple[tuple[str, str], ...] = (
     ("operating cash flow", "operating_cash_flow"),
     ("cash from operations", "operating_cash_flow"),
@@ -56,7 +39,6 @@ _METRIC_PHRASES: tuple[tuple[str, str], ...] = (
     ("equity", "stockholders_equity"),
 )
 
-# Ratios are defined here rather than inferred, with their display label.
 _RATIOS: tuple[tuple[str, str, str, str], ...] = (
     ("gross margin", "gross_profit", "revenue", "Gross margin"),
     ("operating margin", "operating_income", "revenue", "Operating margin"),
@@ -68,9 +50,6 @@ _RATIOS: tuple[tuple[str, str, str, str], ...] = (
     ("roa", "net_income", "total_assets", "Return on assets"),
 )
 
-# Matched as substrings, so "grow" also covers "growth" and "growing".
-# Omitting the bare stem sent "how much did revenue grow from 2022 to 2024"
-# down the single-value path and silently answered a different question.
 _GROWTH_WORDS = (
     "grow",
     "grew",
@@ -107,7 +86,6 @@ class NumericPlan:
 
 
 def _find_tickers(question: str, store: FactStore) -> list[str]:
-    """Match tickers by symbol or by company name, restricted to what is indexed."""
     known = store.tickers()
     if not known:
         return []
@@ -121,7 +99,6 @@ def _find_tickers(question: str, store: FactStore) -> list[str]:
         rows = store.df[store.df["ticker"] == ticker]
         if rows.empty:
             continue
-        # "Apple Inc." should match "apple", so compare on the leading token.
         company = str(rows.iloc[0]["company"])
         lead = re.split(r"[ ,.]", company.strip())[0]
         if len(lead) > 2 and re.search(rf"\b{re.escape(lead.upper())}\b", upper):
@@ -145,7 +122,6 @@ def _find_ratio(lowered: str) -> tuple[str, str, str] | None:
 
 
 def plan_numeric(question: str, store: FactStore) -> NumericPlan | None:
-    """Build an executable numeric plan, or None if the question is not resolvable."""
     if store.is_empty:
         return None
 
@@ -155,7 +131,6 @@ def plan_numeric(question: str, store: FactStore) -> NumericPlan | None:
         return None
 
     years = sorted({int(y) for y in _YEAR_RE.findall(question)})
-    # Years outside the indexed range are almost always a misparse.
     available = set(store.years(tickers[0]))
     years = [y for y in years if y in available] or years
 
@@ -183,7 +158,6 @@ def plan_numeric(question: str, store: FactStore) -> NumericPlan | None:
     elif any(word in lowered for word in _SERIES_WORDS):
         operation = "series"
     elif any(word in lowered for word in _GROWTH_WORDS) and len(years) == 1:
-        # "How much did revenue grow in 2024" means 2023 to 2024.
         operation = "growth"
         years = [years[0] - 1, years[0]]
     else:
@@ -199,7 +173,6 @@ def plan_numeric(question: str, store: FactStore) -> NumericPlan | None:
 
 
 def execute_plan(plan: NumericPlan, store: FactStore) -> list[NumericResult]:
-    """Run a plan against the fact table."""
     results: list[NumericResult] = []
 
     for ticker in plan.tickers:

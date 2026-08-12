@@ -1,5 +1,3 @@
-"""Ingestion orchestration: EDGAR to indexed chunks."""
-
 from __future__ import annotations
 
 import asyncio
@@ -77,7 +75,6 @@ def _to_filing(ref: FilingRef) -> Filing:
 async def chunks_for_filing(
     client: EdgarClient, ref: FilingRef, settings: Settings
 ) -> tuple[Filing, list[Chunk]]:
-    """Fetch, parse, and chunk one filing."""
     filing = _to_filing(ref)
     with span("ingest_filing", filing=filing.filing_id):
         html = await client.fetch_document(ref)
@@ -97,12 +94,6 @@ async def ingest_tickers(
     settings: Settings | None = None,
     form: str = "10-K",
 ) -> IngestReport:
-    """Ingest the most recent filings for each ticker into the vector store.
-
-    Filings are fetched concurrently but the EDGAR client serialises the actual
-    requests through its rate limiter, so concurrency here overlaps parsing and
-    embedding with network wait without ever exceeding the published limit.
-    """
     settings = settings or get_settings()
     settings.ensure_dirs()
     store = store or VectorStore(settings)
@@ -134,8 +125,6 @@ async def ingest_tickers(
 
         outcomes = await asyncio.gather(*(process(ref) for ref in refs))
 
-    # Embedding is CPU bound and synchronous, so it happens after the network
-    # phase rather than inside the gather.
     for ref, chunks, error in outcomes:
         entry = FilingReport(
             filing_id=ref.filing_id,

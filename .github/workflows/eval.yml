@@ -1,12 +1,5 @@
 name: Evaluation gate
 
-# The quality gate. Retrieval and answer quality are measured against a fixed
-# golden set, and the build fails when they regress below the thresholds in
-# evals/thresholds.json.
-#
-# This is the workflow that makes the rest of the project trustworthy: without
-# it, "the retrieval got better" is an opinion.
-
 on:
   push:
     branches: [main]
@@ -20,14 +13,13 @@ on:
       - "evals/**"
   workflow_dispatch:
   schedule:
-    # Weekly, to catch drift in EDGAR responses rather than in our code.
     - cron: "0 6 * * 1"
 
 env:
   PYTHONUNBUFFERED: "1"
   SECRAG_LLM_PROVIDERS: echo
   SECRAG_ENABLE_SPLADE: "false"
-  SECRAG_EDGAR_USER_AGENT: "sec-rag-platform-ci/0.1.0 (shuklaaw@mail.uc.edu)"
+  SECRAG_EDGAR_USER_AGENT: "sec-rag-platform-ci/0.1.0 (${{ secrets.EDGAR_CONTACT }})"
 
 jobs:
   evaluate:
@@ -58,8 +50,6 @@ jobs:
       - name: Cache EDGAR responses
         uses: actions/cache@v4
         with:
-          # Filings are immutable once filed, so a cache hit is always correct
-          # and it keeps CI from hammering a public government service.
           path: data/raw/edgar
           key: edgar-${{ hashFiles('src/secrag/corpus.py') }}-v1
           restore-keys: edgar-

@@ -1,10 +1,3 @@
-"""Provider-agnostic LLM interface.
-
-Nothing above this layer knows which vendor is answering. That is what makes
-the fallback chain possible, and what lets the entire test suite run offline
-against a deterministic stand-in with no API keys and no network.
-"""
-
 from __future__ import annotations
 
 import asyncio
@@ -41,8 +34,6 @@ class ChatMessage:
 
 @dataclass(frozen=True, slots=True)
 class Completion:
-    """A finished generation plus the accounting needed to trace it."""
-
     text: str
     provider: str
     model: str
@@ -56,8 +47,6 @@ class Completion:
 
 
 class LLMProvider(ABC):
-    """Base class every provider implements."""
-
     name: str = "base"
 
     def __init__(self, *, model: str, timeout_s: float = 45.0, max_retries: int = 3) -> None:
@@ -85,7 +74,6 @@ class LLMProvider(ABC):
     ) -> AsyncIterator[str]: ...
 
     async def health(self) -> bool:
-        """Cheap liveness probe. Never raises."""
         try:
             await self.complete(
                 [ChatMessage(role="user", content="ping")], max_tokens=8, temperature=0.0
@@ -94,22 +82,17 @@ class LLMProvider(ABC):
             return False
         return True
 
-    # -- shared helpers ---------------------------------------------------
-
     def _record(self, completion: Completion) -> Completion:
         record_usage(completion.model, completion.prompt_tokens, completion.completion_tokens)
         return completion
 
     @staticmethod
     def _estimate(messages: Sequence[ChatMessage], output: str) -> tuple[int, int]:
-        """Fallback accounting for providers that omit usage on streamed responses."""
         prompt = sum(estimate_tokens(m.content) for m in messages)
         return prompt, estimate_tokens(output)
 
 
 class HTTPProvider(LLMProvider):
-    """Shared HTTP plumbing: one pooled client, bounded retries, typed errors."""
-
     base_url: str = ""
 
     def __init__(
@@ -130,18 +113,6 @@ class HTTPProvider(LLMProvider):
 
     @property
     def client(self) -> httpx.AsyncClient:
-        """Return a client valid for the *current* event loop.
-
-        An httpx.AsyncClient binds its connection pool to the loop that created
-        it. Caching one across loops raises "Event loop is closed" on the second
-        call, which is easy to miss because the first call always succeeds.
-
-        It surfaces wherever a caller drives async code from a sync context
-        with asyncio.run, since that builds and tears down a loop each time.
-        Rebinding here keeps the provider correct regardless of how it is
-        driven. The stale client is dropped rather than closed, because closing
-        it would require awaiting on a loop that no longer exists.
-        """
         loop = asyncio.get_running_loop()
         if self._client is None or self._client.is_closed or self._client_loop is not loop:
             self._client = httpx.AsyncClient(
@@ -159,11 +130,6 @@ class HTTPProvider(LLMProvider):
         self._client_loop = None
 
     def _retryer(self) -> AsyncRetrying:
-        """Retry only on transient faults.
-
-        A 400 will never succeed on retry, and retrying it just burns free tier
-        quota, so only timeouts, connection errors, and 429/5xx are retried.
-        """
         return AsyncRetrying(
             stop=stop_after_attempt(self.max_retries + 1),
             wait=wait_exponential_jitter(initial=0.5, max=8.0),
@@ -180,6 +146,6 @@ class HTTPProvider(LLMProvider):
             raise RateLimitError(msg, detail=body)
         if response.status_code >= 500:
             msg = f"{self.name} upstream error {response.status_code}"
-            raise RateLimitError(msg, detail=body)  # retryable, same handling
+            raise RateLimitError(msg, detail=body)
         msg = f"{self.name} request failed with {response.status_code}"
         raise ProviderError(msg, detail=body)

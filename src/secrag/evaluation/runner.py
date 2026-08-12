@@ -1,18 +1,3 @@
-"""Evaluation harness.
-
-This is the part of the project that makes the rest trustworthy. Any RAG demo
-can produce an answer; the question a reviewer actually cares about is whether
-you can tell when it gets worse. So every change is measured against a fixed
-golden set, the numbers are written to a JSON report, and CI fails the build
-when they fall below the thresholds in evals/thresholds.json.
-
-The suite is deliberately runnable with no API key. The offline provider
-composes real extractive answers from the retrieved passages, so citation and
-groundedness metrics stay meaningful, while retrieval metrics do not depend on
-a language model at all. A green CI run therefore means something even though
-it never made a network call.
-"""
-
 from __future__ import annotations
 
 import json
@@ -58,7 +43,6 @@ def load_thresholds(settings: Settings | None = None) -> dict[str, float]:
     if not path.exists():
         return dict(DEFAULT_THRESHOLDS)
     payload = json.loads(path.read_text(encoding="utf-8"))
-    # Keys beginning with an underscore are documentation, not thresholds.
     overrides = {k: float(v) for k, v in payload.items() if not k.startswith("_")}
     return {**DEFAULT_THRESHOLDS, **overrides}
 
@@ -154,14 +138,13 @@ class EvaluationResult:
 async def evaluate_case(
     engine: QueryEngine, case: GoldenCase, *, reranker: str, k: int
 ) -> CaseResult:
-    """Run one golden case and score it."""
     request = QueryRequest(
         question=case.question,
         top_k=max(k, 6),
         companies=case.companies,
         fiscal_years=case.fiscal_years,
         reranker=reranker,
-        use_cache=False,  # caching between cases would invalidate the measurement
+        use_cache=False,
     )
 
     try:
@@ -202,9 +185,6 @@ async def evaluate_case(
         if accuracy is not None:
             scores["numeric_accuracy"] = accuracy
 
-    # A case marked expect_refusal is testing that the system declines rather
-    # than inventing an answer. Scoring it on retrieval quality would be
-    # backwards, so it is scored on whether it refused.
     refused = answer.status is not AnswerStatus.OK
     scores["refusal_correctness"] = float(refused == case.expect_refusal)
 
@@ -231,7 +211,6 @@ async def run_evaluation(
     cases: Sequence[GoldenCase] | None = None,
     engine: QueryEngine | None = None,
 ) -> EvaluationResult:
-    """Run the full golden set and produce a scored report."""
     settings = settings or get_settings()
     started = time.perf_counter()
 

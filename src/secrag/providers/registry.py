@@ -1,13 +1,3 @@
-"""Provider construction and the fallback chain.
-
-The chain is itself an LLMProvider. Callers ask for one provider and get
-transparent failover, which keeps every call site free of try/except ladders.
-
-This matters on free tiers specifically: Groq allows 30 requests per minute and
-Gemini allows a separate daily budget, so falling through on a 429 rather than
-failing the request roughly doubles usable throughput at zero cost.
-"""
-
 from __future__ import annotations
 
 from collections.abc import AsyncIterator, Sequence
@@ -26,7 +16,6 @@ _BUILDERS: dict[str, type[HTTPProvider]] = {"groq": GroqProvider, "gemini": Gemi
 
 
 def build_provider(name: str, settings: Settings | None = None) -> LLMProvider:
-    """Construct a single provider by name."""
     settings = settings or get_settings()
     key = name.strip().lower()
     if key == "echo":
@@ -48,8 +37,6 @@ def build_provider(name: str, settings: Settings | None = None) -> LLMProvider:
 
 
 class ProviderChain(LLMProvider):
-    """Tries each provider in order, moving on when one fails."""
-
     name = "chain"
 
     def __init__(self, providers: Sequence[LLMProvider]) -> None:
@@ -112,8 +99,6 @@ class ProviderChain(LLMProvider):
             except Exception as exc:
                 failures.append(f"{provider.name}: {type(exc).__name__}: {exc}")
                 log.warning("provider_stream_failed", provider=provider.name, error=str(exc))
-                # Once bytes have reached the client we cannot silently restart
-                # on another provider without corrupting the response.
                 if produced:
                     raise
                 continue
@@ -130,12 +115,6 @@ class ProviderChain(LLMProvider):
 
 
 def build_chain(settings: Settings | None = None) -> ProviderChain:
-    """Build the fallback chain from settings, skipping providers with no key.
-
-    Falls back to the offline provider rather than raising, so the service can
-    always start. A misconfigured deployment degrades to something inspectable
-    instead of refusing to boot.
-    """
     settings = settings or get_settings()
     names = settings.configured_providers()
 

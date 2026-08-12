@@ -1,18 +1,3 @@
-"""FastAPI service.
-
-Design notes worth stating, because they are the parts that would otherwise
-look arbitrary:
-
-- The engine is built once in the lifespan handler and warmed before the server
-  accepts traffic. Lazy loading would push a 5 second model initialisation onto
-  whichever user arrives first.
-- Retrieval and embedding are synchronous CPU work. Running them directly in
-  the event loop would stall every other in-flight request, so the blocking
-  path is dispatched to a worker thread.
-- Errors are translated in one exception handler from the typed hierarchy in
-  core.errors, so no route constructs a status code by hand.
-"""
-
 from __future__ import annotations
 
 import asyncio
@@ -51,8 +36,6 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     app.state.engine = engine
     app.state.ready = False
 
-    # Warmup is blocking model initialisation, so it runs in a thread to keep
-    # the health endpoint responsive while it happens.
     async def warm() -> None:
         try:
             await asyncio.to_thread(engine.warmup)
@@ -67,25 +50,12 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     try:
         yield
     finally:
-        # Wait for warmup rather than cancelling it. Warmup runs inside
-        # asyncio.to_thread, and cancelling the awaiting coroutine does not
-        # stop the thread: it carries on and reopens the vector store after
-        # shutdown has closed it. The index lock is then held by a thread
-        # nobody is waiting on, and the next startup fails with
-        # "already accessed by another instance".
         with contextlib.suppress(TimeoutError, asyncio.CancelledError, Exception):
             await asyncio.wait_for(task, timeout=60.0)
         await engine.aclose()
 
 
 def create_app() -> FastAPI:
-    """Build the application.
-
-    A factory rather than a bare module-level object so configuration is read
-    when the app is constructed instead of when the module is first imported.
-    Import-time configuration is invisible to tests and to anything that sets
-    environment variables after import.
-    """
     application = FastAPI(
         title="sec-rag-platform",
         version=__version__,
@@ -104,12 +74,12 @@ def create_app() -> FastAPI:
         allow_headers=["*"],
     )
     application.include_router(router)
-    application.add_exception_handler(SecRagError, handle_secrag_error)  # type: ignore[arg-type]
+    application.add_exception_handler(SecRagError, handle_secrag_error)
     return application
 
 
 def engine_of(request: Request) -> QueryEngine:
-    return request.app.state.engine  # type: ignore[no-any-return]
+    return request.app.state.engine
 
 
 async def handle_secrag_error(_: Request, exc: SecRagError) -> JSONResponse:
@@ -118,20 +88,13 @@ async def handle_secrag_error(_: Request, exc: SecRagError) -> JSONResponse:
     return JSONResponse(status_code=exc.status_code, content=exc.to_dict())
 
 
-# ---------------------------------------------------------------------------
-# Health and introspection
-# ---------------------------------------------------------------------------
-
-
 @router.get("/health", tags=["ops"])
 async def health() -> dict[str, str]:
-    """Liveness. Answers even while models are still loading."""
     return {"status": "ok", "version": __version__}
 
 
 @router.get("/ready", tags=["ops"])
 async def ready(request: Request) -> JSONResponse:
-    """Readiness. Only true once models are warm and the corpus is loaded."""
     is_ready = bool(getattr(request.app.state, "ready", False))
     engine = engine_of(request)
     return JSONResponse(
@@ -146,13 +109,11 @@ async def ready(request: Request) -> JSONResponse:
 
 @router.get("/v1/stats", tags=["ops"])
 async def stats(request: Request) -> dict[str, Any]:
-    """Everything the service knows about its own configuration and corpus."""
     return engine_of(request).stats()
 
 
 @router.get("/metrics", response_class=PlainTextResponse, tags=["ops"])
 async def metrics() -> str:
-    """Prometheus text exposition."""
     return REGISTRY.render_prometheus()
 
 
@@ -161,14 +122,8 @@ async def metrics_json() -> dict[str, object]:
     return REGISTRY.snapshot()
 
 
-# ---------------------------------------------------------------------------
-# Query
-# ---------------------------------------------------------------------------
-
-
 @router.post("/v1/query", response_model=QueryResponse, tags=["query"])
 async def query(request: Request, payload: QueryRequest) -> QueryResponse:
-    """Answer a question with citations, verified figures, and a groundedness score."""
     engine = engine_of(request)
     REGISTRY.increment("secrag_queries_total")
 
@@ -185,11 +140,6 @@ async def query(request: Request, payload: QueryRequest) -> QueryResponse:
 
 @router.post("/v1/query/stream", tags=["query"])
 async def query_stream(request: Request, payload: QueryRequest) -> StreamingResponse:
-    """Stream an answer as server-sent events.
-
-    Sources and the routing decision are emitted before the first token, so the
-    client can render provenance while the answer is still being written.
-    """
     engine = engine_of(request)
     REGISTRY.increment("secrag_queries_total")
     REGISTRY.increment("secrag_stream_requests_total")
@@ -211,16 +161,9 @@ async def query_stream(request: Request, payload: QueryRequest) -> StreamingResp
         headers={
             "Cache-Control": "no-cache",
             "Connection": "keep-alive",
-            # Without this, nginx-style proxies buffer the whole response and
-            # the stream arrives as one lump, defeating the point.
             "X-Accel-Buffering": "no",
         },
     )
-
-
-# ---------------------------------------------------------------------------
-# UI
-# ---------------------------------------------------------------------------
 
 
 @router.get("/", response_class=HTMLResponse, include_in_schema=False)
@@ -232,13 +175,5 @@ async def index() -> HTMLResponse:
         )
     return HTMLResponse(path.read_text(encoding="utf-8"))
 
-
-# ---------------------------------------------------------------------------
-# Module-level instance for `uvicorn secrag.api.app:app`.
-#
-# Constructed at the bottom of the module, after every handler it references
-# has been defined. Building it immediately after the factory raises NameError
-# on the exception handler declared further down.
-# ---------------------------------------------------------------------------
 
 app = create_app()

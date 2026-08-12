@@ -1,5 +1,3 @@
-"""Command line interface."""
-
 from __future__ import annotations
 
 import asyncio
@@ -44,7 +42,6 @@ def ingest(
     skip_xbrl: Annotated[bool, typer.Option(help="Skip XBRL fact ingestion")] = False,
     verbose: Annotated[bool, typer.Option("--verbose", "-v")] = False,
 ) -> None:
-    """Fetch filings from EDGAR, chunk them, and build the index."""
     _setup(verbose)
     from secrag.ingest.pipeline import ingest_tickers
     from secrag.ingest.xbrl import build_fact_store
@@ -89,12 +86,6 @@ def facts(
     tickers: Annotated[str | None, typer.Option(help="Comma separated, e.g. AAPL,MSFT")] = None,
     verbose: Annotated[bool, typer.Option("--verbose", "-v")] = False,
 ) -> None:
-    """Rebuild the XBRL fact table without re-chunking any filings.
-
-    Useful after changing the fact selection logic, since the companyfacts
-    responses are cached on disk and this takes seconds rather than the tens of
-    minutes a full re-ingest costs.
-    """
     _setup(verbose)
     from secrag.ingest.xbrl import build_fact_store
 
@@ -128,7 +119,6 @@ def facts(
 
 @app.command()
 def stats(verbose: Annotated[bool, typer.Option("--verbose", "-v")] = False) -> None:
-    """Show what is currently indexed."""
     _setup(verbose)
     from secrag.engine import build_engine
 
@@ -145,7 +135,6 @@ def query(
     no_cache: Annotated[bool, typer.Option("--no-cache")] = False,
     verbose: Annotated[bool, typer.Option("--verbose", "-v")] = False,
 ) -> None:
-    """Ask a question against the indexed corpus."""
     _setup(verbose)
     from secrag.core.types import QueryRequest
     from secrag.engine import build_engine
@@ -192,15 +181,12 @@ def query(
 
 @app.command("train-router")
 def train_router(verbose: Annotated[bool, typer.Option("--verbose", "-v")] = False) -> None:
-    """Train the query intent classifier and report held-out performance."""
     _setup(verbose)
     from secrag.routing.router import QueryRouter
 
     report = QueryRouter().train()
     payload = report.to_dict()
 
-    # Persisted so scripts/update_readme.py can inject the measured numbers
-    # rather than anyone transcribing them by hand.
     out = get_settings().project_root / "evals" / "reports" / "router_training.json"
     out.parent.mkdir(parents=True, exist_ok=True)
     out.write_text(json.dumps(payload, indent=2), encoding="utf-8")
@@ -211,7 +197,6 @@ def train_router(verbose: Annotated[bool, typer.Option("--verbose", "-v")] = Fal
 
 @app.command("train-ltr")
 def train_ltr(verbose: Annotated[bool, typer.Option("--verbose", "-v")] = False) -> None:
-    """Train the learning-to-rank reranker on the golden set."""
     _setup(verbose)
     from secrag.evaluation.ltr_training import train_ltr_model
 
@@ -226,7 +211,6 @@ def evaluate(
     gate: Annotated[bool, typer.Option(help="Exit non-zero if thresholds are missed")] = False,
     verbose: Annotated[bool, typer.Option("--verbose", "-v")] = False,
 ) -> None:
-    """Run the evaluation harness over the golden set."""
     _setup(verbose)
     from secrag.evaluation.runner import run_evaluation
 
@@ -242,7 +226,6 @@ def benchmark(
     report_path: Annotated[Path | None, typer.Option()] = None,
     verbose: Annotated[bool, typer.Option("--verbose", "-v")] = False,
 ) -> None:
-    """Ablate retrieval arms and rerankers, and report the comparison."""
     _setup(verbose)
     from secrag.evaluation.benchmark import run_benchmark
 
@@ -255,7 +238,6 @@ def serve(
     port: Annotated[int | None, typer.Option()] = None,
     reload: Annotated[bool, typer.Option()] = False,
 ) -> None:
-    """Run the API and web UI."""
     _setup()
     import uvicorn
 

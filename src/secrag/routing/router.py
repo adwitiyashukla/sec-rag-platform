@@ -1,22 +1,3 @@
-"""Query intent router.
-
-A single retrieval strategy cannot serve every question well. Asking for a
-figure and asking what management said about that figure need different
-machinery, and guessing wrong is expensive in both directions: send a numeric
-question down the text path and the model reads a number out of a table badly,
-send a narrative question to the arithmetic engine and there is no answer at
-all.
-
-So the routing decision is learned rather than hand-coded, and it is measured.
-Features combine dense embeddings, which capture phrasing, with a handful of
-explicit lexical signals, which capture the tells that embeddings smooth over:
-a bare fiscal year, the word "versus", a request to calculate.
-
-The classifier is intentionally small. With around a hundred labelled examples,
-regularised logistic regression is the right capacity; anything larger memorises
-the training set and reports a flattering score it has not earned.
-"""
-
 from __future__ import annotations
 
 import re
@@ -139,8 +120,6 @@ LEXICAL_FEATURE_NAMES: tuple[str, ...] = (
 
 @dataclass(slots=True)
 class RouterReport:
-    """Held-out performance, reported honestly rather than on training data."""
-
     accuracy: float
     macro_f1: float
     per_class_f1: dict[str, float] = field(default_factory=dict)
@@ -162,7 +141,6 @@ class RouterReport:
 
 
 def lexical_features(query: str) -> list[float]:
-    """Explicit signals the embedding tends to wash out."""
     lowered = query.lower()
     words = set(re.findall(r"[a-z]+", lowered))
     return [
@@ -178,8 +156,6 @@ def lexical_features(query: str) -> list[float]:
 
 
 class QueryRouter:
-    """Learned intent classifier with a confidence-gated fallback."""
-
     def __init__(self, settings: Settings | None = None, embedder: Embedder | None = None) -> None:
         self.settings = settings or get_settings()
         self.embedder = embedder or Embedder(self.settings)
@@ -190,14 +166,10 @@ class QueryRouter:
         self._classes: list[str] = []
         self._load_failed = False
 
-    # -- features ---------------------------------------------------------
-
     def _matrix(self, queries: Sequence[str]) -> np.ndarray:
         embeddings = self.embedder.embed_documents(list(queries))
         lexical = np.asarray([lexical_features(q) for q in queries], dtype=np.float32)
         return np.hstack([embeddings, lexical]).astype(np.float32)
-
-    # -- training ---------------------------------------------------------
 
     def train(self, *, folds: int = 5, seed: int = 42) -> RouterReport:
         import joblib
@@ -229,9 +201,6 @@ class QueryRouter:
                     ]
                 )
 
-            # Cross-validated predictions, so the reported score comes from
-            # folds the model never saw. Scoring on the training set here would
-            # produce a number near 1.0 that means nothing.
             splitter = StratifiedKFold(n_splits=folds, shuffle=True, random_state=seed)
             predicted = cross_val_predict(make_pipeline(), features, labels, cv=splitter)
 
@@ -241,7 +210,6 @@ class QueryRouter:
             per_class = f1_score(labels, predicted, average=None, labels=class_order)
             matrix = confusion_matrix(labels, predicted, labels=class_order)
 
-            # Final model is fit on everything, since the estimate is already in.
             pipeline = make_pipeline()
             pipeline.fit(features, labels)
 
@@ -263,8 +231,6 @@ class QueryRouter:
         log.info("router_trained", accuracy=round(accuracy, 4), macro_f1=round(macro_f1, 4))
         return report
 
-    # -- inference --------------------------------------------------------
-
     @property
     def pipeline(self) -> Any | None:
         if self._pipeline is None and not self._load_failed:
@@ -285,12 +251,6 @@ class QueryRouter:
         return self.pipeline is not None
 
     def route(self, query: str) -> RouteDecision:
-        """Classify a query, falling back to factoid when unsure.
-
-        Factoid is the safe default: it is the general text path, so an
-        unconfident route degrades to ordinary RAG rather than to a wrong
-        specialised pipeline.
-        """
         pipeline = self.pipeline
         if pipeline is None:
             return RouteDecision(

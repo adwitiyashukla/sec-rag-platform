@@ -1,11 +1,3 @@
-"""API surface tests.
-
-These exercise the real FastAPI application with the offline provider and an
-empty index. An empty corpus is the interesting case: it is exactly the state a
-fresh deployment is in, and the service must degrade to an honest refusal
-rather than erroring or inventing an answer.
-"""
-
 from __future__ import annotations
 
 import json
@@ -19,19 +11,7 @@ from secrag.core.config import get_settings
 
 @pytest.fixture
 def client(tmp_path, monkeypatch) -> TestClient:
-    """A fresh app against an isolated, empty index.
-
-    Configuration is injected through environment variables rather than by
-    monkeypatching `get_settings`. Patching the function object does not reach
-    modules that imported it by name, which silently left the app pointed at
-    the developer's real index: the tests then passed for the wrong reason, and
-    fought the running service for the index lock.
-    """
     monkeypatch.setenv("SECRAG_DATA_DIR", str(tmp_path / "data"))
-    # The index must be isolated per test, but the ONNX weights must not be.
-    # Leaving the model cache under tmp_path re-downloads roughly 150 MB for
-    # every test, which turned an 8 second suite into 89 seconds and would hit
-    # the Hugging Face rate limit in CI.
     monkeypatch.setenv(
         "SECRAG_MODEL_CACHE_DIR",
         str(pathlib.Path(__file__).resolve().parents[2] / "data" / "models"),
@@ -85,7 +65,6 @@ def test_metrics_are_prometheus_formatted(client: TestClient) -> None:
 
 
 def test_empty_corpus_refuses_rather_than_inventing(client: TestClient) -> None:
-    """A fresh deployment must say it does not know, not answer from nothing."""
     response = client.post("/v1/query", json={"question": "What are the risk factors?"})
     assert response.status_code == 200
 
@@ -130,12 +109,6 @@ def test_stream_emits_meta_then_tokens_then_done(client: TestClient) -> None:
 
 
 def test_stream_reports_cache_state(client: TestClient) -> None:
-    """The streaming path must consult the cache, not just the JSON endpoint.
-
-    The web UI streams, so a cache that only the non-streaming endpoint checked
-    was unreachable in the one path users actually take. It showed up as a
-    permanently empty hit counter.
-    """
     with client.stream(
         "POST", "/v1/query/stream", json={"question": "What are the risk factors?"}
     ) as response:

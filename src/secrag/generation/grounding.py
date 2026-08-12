@@ -1,18 +1,3 @@
-"""Groundedness verification.
-
-An answer that cites [2] is not thereby supported by [2]. Verifying the link is
-what separates a citation from a decoration, and on financial filings it is the
-difference between a usable system and a liability.
-
-Verification is done without a second model call, for three reasons: an extra
-call doubles latency and free tier quota consumption, a model grading its own
-output is a weak check, and a deterministic score can be asserted on in CI.
-
-Each answer sentence is compared against the chunks it cites using embedding
-cosine similarity. The supporting quote is located by lexical overlap first,
-which is cheap, and only the sentence-level support score uses embeddings.
-"""
-
 from __future__ import annotations
 
 import re
@@ -30,15 +15,9 @@ from secrag.retrieval.embedder import Embedder
 log = get_logger(__name__)
 
 _MARKER_RE = re.compile(r"\[(\d{1,2})\]")
-# The prompt supplies XBRL figures under a "Verified figures" heading, and
-# models attribute to it by name rather than by number. That is the correct
-# thing to do, so it must not be scored as an uncited claim.
 _VERIFIED_RE = re.compile(r"\[\s*verified[^\]]*\]", re.IGNORECASE)
 _SENTENCE_SPLIT_RE = re.compile(r"(?<=[.!?])\s+(?=[A-Z(\"'\[]|\Z)")
 
-# Below this, a sentence and the passage it cites are not discussing the same
-# thing. Calibrated against BGE-small cosine similarities on this corpus, where
-# genuinely supported sentences sit around 0.6 to 0.8.
 _SUPPORT_FLOOR = 0.35
 
 
@@ -59,22 +38,6 @@ def split_answer_sentences(text: str) -> list[str]:
 
 
 def split_claims(text: str) -> list[tuple[str, list[int]]]:
-    """Group an answer into claim spans, each ending at its citation.
-
-    Scoring per sentence is wrong, and wrong in a way that quietly breaks the
-    system. Writers, human and model alike, state two or three sentences and
-    then cite once at the end. Scoring each sentence independently gives every
-    sentence but the last a zero, which halves groundedness on answers that are
-    perfectly well supported. On this corpus that pushed the measured score to
-    0.29, below the refusal threshold, so the guardrail withheld almost every
-    correct answer.
-
-    A span therefore runs from wherever the previous one ended through the
-    sentence that carries the citation, and the whole span is scored against
-    the passages that sentence cites. Trailing sentences with no citation
-    anywhere after them form a final uncited span, which is scored as
-    unsupported because nothing backs it.
-    """
     spans: list[tuple[str, list[int]]] = []
     buffer: list[str] = []
 
@@ -91,11 +54,6 @@ def split_claims(text: str) -> list[tuple[str, list[int]]]:
 
 
 def _best_quote(sentence: str, chunk_text: str) -> str:
-    """Pick the sentence of the source that best matches the claim.
-
-    Lexical overlap rather than embeddings: this runs once per citation and only
-    selects which span to display, so precision here is not worth the latency.
-    """
     claim_tokens = set(tokenize(sentence))
     if not claim_tokens:
         return chunk_text[:240]
@@ -122,15 +80,6 @@ def verify(
     *,
     has_verified_figures: bool = False,
 ) -> GroundingReport:
-    """Score how well an answer is supported by the passages it cites.
-
-    A claim attributed to the verified figures block is treated as fully
-    supported. Those numbers are computed deterministically from filed XBRL and
-    are strictly more auditable than any retrieved passage, so scoring them as
-    unsupported inverts the ranking of evidence quality. In practice it dragged
-    numeric answers close to the refusal threshold, which would have withheld
-    exactly the answers this system is most confident about.
-    """
     claims = split_claims(answer_text)
     if not claims or not contexts:
         return GroundingReport(groundedness=0.0)
@@ -148,9 +97,6 @@ def verify(
                 sentence_scores=[0.0] * len(claims),
             )
 
-        # One batched embedding call covers every claim span and every cited
-        # chunk, so verification costs a single forward pass rather than one
-        # per sentence.
         chunk_texts = [contexts[i].chunk.text for i in cited_indexes]
         claim_texts = [text for text, _ in claims]
         matrix = embedder.embed_documents([*claim_texts, *chunk_texts])
@@ -227,11 +173,6 @@ _HEDGE_PREFIXES = (
 
 
 def _is_factual(sentence: str) -> bool:
-    """Rough test for whether an uncited sentence is asserting something.
-
-    Penalising every uncited sentence would punish natural connective prose and
-    push the score down for answers that are actually fine.
-    """
     lowered = sentence.lower().strip()
     if any(lowered.startswith(prefix) for prefix in _HEDGE_PREFIXES):
         return False

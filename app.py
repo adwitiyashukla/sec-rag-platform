@@ -1,18 +1,3 @@
-"""Gradio front end for the Hugging Face Space.
-
-Hugging Face made Docker Spaces a paid feature, so the free tier is Gradio or
-Static only. The FastAPI service in `secrag.api` remains the primary interface
-and is what the Docker image and the local `secrag serve` command run. This
-module is a second front end over the same engine, not a reimplementation:
-every number it shows comes from the same `QueryEngine` call path that the API
-and the CLI use.
-
-The Space ships a prebuilt index rather than ingesting on boot. Free Spaces
-have no persistent disk, so ingesting at startup would re-download nine 10-K
-filings from EDGAR on every restart, take about five minutes, and greet the
-first visitor with an empty corpus.
-"""
-
 from __future__ import annotations
 
 import os
@@ -20,57 +5,33 @@ import sys
 from pathlib import Path
 from typing import Any
 
-# Configure before importing secrag, since settings are read on first use.
 _ROOT = Path(__file__).parent
 
-# Spaces install requirements.txt before copying the repository in, so this
-# package is never pip-installed there. Putting src/ on the path makes the
-# import work identically in both places without a second copy of the code.
 sys.path.insert(0, str(_ROOT / "src"))
 
 os.environ.setdefault("SECRAG_DATA_DIR", str(_ROOT / "data"))
-# SPLADE is a 508 MB download for a measured gain of roughly 0.01 nDCG once a
-# reranker is in play. Not a good trade on a 16 GB shared box.
 os.environ.setdefault("SECRAG_ENABLE_SPLADE", "false")
 
-import gradio as gr  # noqa: E402
+import gradio as gr
 
-from secrag.core.types import QueryRequest  # noqa: E402
-from secrag.engine import build_engine  # noqa: E402
+from secrag.core.types import QueryRequest
+from secrag.engine import build_engine
 
-# ---------------------------------------------------------------------------
-# ZeroGPU declaration
-#
-# Free Gradio Spaces are provisioned as ZeroGPU, and CPU Basic is now a paid
-# feature, so this is not a choice. ZeroGPU refuses to start unless at least
-# one @spaces.GPU function exists, and this pipeline deliberately has none:
-# every model runs on ONNX Runtime on CPU, which is the tradeoff recorded in
-# ADR 0001 and what keeps the image at 51 MB instead of gigabytes.
-#
-# So the function below is a diagnostic, not a workload. It reports whether a
-# GPU was attached and is never called on the answer path. Declaring it is the
-# honest way to satisfy the platform check; the alternative is pretending some
-# real work needs a GPU, which would allocate one on every query, add seconds
-# of scheduling latency, and consume a shared quota for nothing.
-#
-# The import is guarded so the same file runs unchanged off-platform.
-# ---------------------------------------------------------------------------
 try:
     import spaces
 
     @spaces.GPU(duration=10)
     def gpu_diagnostic() -> str:
-        """Report GPU availability. Present to satisfy ZeroGPU, never on the hot path."""
         try:
             import onnxruntime
 
             providers = onnxruntime.get_available_providers()
-        except Exception:  # pragma: no cover - diagnostic only
+        except Exception:
             providers = []
         return f"ONNX Runtime providers visible to this worker: {providers}"
 
-except ImportError:  # running locally, or on any host that is not a Space
-    gpu_diagnostic = None  # type: ignore[assignment]
+except ImportError:
+    gpu_diagnostic = None
 
 
 ENGINE = build_engine()
@@ -130,7 +91,7 @@ def _sources_md(contexts: list[Any]) -> str:
             body = body[:700] + " ..."
         parts.append(
             f"<details><summary><b>[{i}] {chunk.ticker} FY{chunk.fiscal_year} "
-            f"{section}</b> &nbsp; <code>{arms}</code> &nbsp; "
+            f"{section}</b> <code>{arms}</code> "
             f"score {scored.score:.3f}</summary>\n\n"
             f"{body}\n\n[View filing]({chunk.source_url})\n\n</details>"
         )
@@ -161,12 +122,6 @@ def _diagnostics_md(response: Any) -> str:
 async def ask(
     question: str, company: str, reranker: str, use_cache: bool
 ) -> tuple[str, str, str, str]:
-    """Run one question through the same engine the API and CLI use.
-
-    Declared async so Gradio awaits it on its own running loop. Wrapping the
-    engine in asyncio.run instead would build and tear down a loop per request,
-    and the provider's pooled HTTP client would be left bound to a closed one.
-    """
     if not question or not question.strip():
         return "Ask a question to begin.", "", "", ""
 
@@ -181,7 +136,7 @@ async def ask(
 
     try:
         response = await ENGINE.answer(request)
-    except Exception as exc:  # a public demo must not render a stack trace
+    except Exception as exc:
         return f"**Something went wrong.**\n\n```\n{type(exc).__name__}: {exc}\n```", "", "", ""
 
     answer = response.answer.text
@@ -207,10 +162,10 @@ Hybrid retrieval across dense and lexical arms, fused by Reciprocal Rank Fusion 
 Financial figures are **computed from filed XBRL data rather than generated by the model**,
 and every answer is verified against the passages it cites before being returned.
 
-`{STATS["corpus_chunks"]:,}` chunks &nbsp;|&nbsp; `{STATS["xbrl_rows"]:,}` XBRL facts &nbsp;|&nbsp;
-{" ".join(STATS["tickers"])} &nbsp;|&nbsp; provider `{(STATS["providers"] or ["offline"])[0]}`
+`{STATS["corpus_chunks"]:,}` chunks | `{STATS["xbrl_rows"]:,}` XBRL facts |
+{" ".join(STATS["tickers"])} | provider `{(STATS["providers"] or ["offline"])[0]}`
 
-[Source on GitHub](https://github.com/adwitiyashukla/sec-rag-platform) &nbsp;|&nbsp;
+[Source on GitHub](https://github.com/adwitiyashukla/sec-rag-platform) |
 Measured: nDCG@6 0.763, groundedness 0.781, numeric accuracy 1.000
 """
 
@@ -265,18 +220,8 @@ with gr.Blocks(title="sec-rag-platform") as demo:
 
 
 if __name__ == "__main__":
-    # Binding to all interfaces is required: the Space serves the app from
-    # inside a container and reaches it through a published port.
-    #
-    # No theme is passed. Gradio 5 accepts it on Blocks and Gradio 6 accepts it
-    # on launch, and the Space pins its own version, so passing it either way
-    # risks a TypeError on the version we did not test against.
     demo.queue(max_size=16).launch(
-        server_name="0.0.0.0",  # noqa: S104
+        server_name="0.0.0.0",
         server_port=7860,
-        # Server-side rendering spawns a Node process alongside Python. It is
-        # marked experimental, buys nothing for an app whose latency is
-        # dominated by retrieval, and adds a second thing that can fail on a
-        # shared free-tier container.
         ssr_mode=False,
     )

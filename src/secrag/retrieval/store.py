@@ -1,15 +1,3 @@
-"""Vector store.
-
-Qdrant in embedded mode: no server, no container, no network hop, and the index
-is a directory on disk that a free tier host will happily keep. It still gives
-named vectors, native sparse vector support, and payload filtering, which are
-the three features the retrieval design actually depends on.
-
-The store holds the full chunk payload, so it is the single source of truth for
-the corpus. The BM25 index is derived from it at load time rather than being a
-second thing to keep in sync.
-"""
-
 from __future__ import annotations
 
 import shutil
@@ -35,8 +23,6 @@ DENSE_VECTOR = "dense"
 SPARSE_VECTOR = "splade"
 COLLECTION = "filings"
 
-# Fixed namespace so a chunk id always maps to the same point id. Re-ingesting
-# a filing overwrites its points instead of duplicating the corpus.
 _NAMESPACE = uuid.UUID("6f9619ff-8b86-d011-b42d-00c04fc964ff")
 
 
@@ -45,13 +31,6 @@ def _point_id(chunk_id: str) -> str:
 
 
 class SearchFilter:
-    """Metadata constraints applied inside the vector store.
-
-    Filtering at the store rather than after retrieval matters: post-filtering a
-    top-k list can leave you with almost nothing when the filter is selective,
-    because the k slots were already spent on documents you then discard.
-    """
-
     def __init__(
         self,
         *,
@@ -92,7 +71,6 @@ class SearchFilter:
         return models.Filter(must=conditions)
 
     def matches(self, chunk: Chunk) -> bool:
-        """Same predicate in Python, used by the BM25 arm which has no store."""
         if self.tickers and (chunk.ticker or "").upper() not in self.tickers:
             return False
         if self.fiscal_years and chunk.fiscal_year not in self.fiscal_years:
@@ -101,29 +79,17 @@ class SearchFilter:
 
 
 class VectorStore:
-    """Embedded Qdrant collection holding dense and sparse vectors."""
-
     def __init__(self, settings: Settings | None = None, embedder: Embedder | None = None) -> None:
         self.settings = settings or get_settings()
         self.embedder = embedder or Embedder(self.settings)
         self.path = self.settings.index_dir / "qdrant"
         self._client: Any | None = None
-        # Startup warmup runs on a worker thread while the server is already
-        # accepting requests, so lazy initialisation here is genuinely
-        # concurrent. Without this lock two threads both observe _client as
-        # None, both construct a client on the same directory, and one either
-        # loses the file lock or reads a collection the other has not finished
-        # creating. It surfaces as an intermittent "Collection not found".
         self._lock = threading.Lock()
-
-    # -- lifecycle --------------------------------------------------------
 
     @property
     def client(self) -> Any:
         if self._client is None:
             with self._lock:
-                # Re-checked inside the lock: another thread may have finished
-                # construction while this one was waiting.
                 if self._client is None:
                     from qdrant_client import QdrantClient
 
@@ -147,11 +113,6 @@ class VectorStore:
             },
             sparse_vectors_config={SPARSE_VECTOR: models.SparseVectorParams()},
         )
-        # Payload indexes keep metadata filtering from degrading into a full
-        # scan on a Qdrant server. Embedded mode ignores them and warns, so the
-        # warning is suppressed rather than the call removed: the schema stays
-        # correct for anyone pointing this at a real server, and embedded mode
-        # is fast enough at this corpus size for it not to matter.
         import warnings
 
         with warnings.catch_warnings():
@@ -177,16 +138,12 @@ class VectorStore:
                 self._client = None
 
     def reset(self) -> None:
-        """Delete the index entirely. Used by ingest --rebuild and by tests."""
         self.close()
         if self.path.exists():
             shutil.rmtree(self.path, ignore_errors=True)
         log.info("index_reset", path=str(self.path))
 
-    # -- writing ----------------------------------------------------------
-
     def upsert(self, chunks: Sequence[Chunk], *, with_sparse: bool = True) -> int:
-        """Embed and store chunks. Idempotent for a given chunk id."""
         if not chunks:
             return 0
         from qdrant_client import models
@@ -219,8 +176,6 @@ class VectorStore:
         log.info("upserted", chunks=len(chunks), sparse=sparse is not None)
         return len(chunks)
 
-    # -- reading ----------------------------------------------------------
-
     def count(self) -> int:
         try:
             return int(self.client.count(COLLECTION, exact=True).count)
@@ -228,7 +183,6 @@ class VectorStore:
             return 0
 
     def iter_chunks(self, batch: int = 512) -> Iterable[Chunk]:
-        """Stream every stored chunk. Used to build the BM25 index."""
         offset = None
         while True:
             points, offset = self.client.scroll(

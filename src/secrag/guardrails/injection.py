@@ -1,20 +1,3 @@
-"""Indirect prompt injection detection.
-
-The threat model is specific. A user's question is not the dangerous input,
-because the user only ever harms themselves. The dangerous input is retrieved
-content, which is attacker-controlled in any system that indexes documents it
-did not author, and which the model reads with the same trust as instructions.
-
-SEC filings are a low risk corpus, but the ingestion path accepts arbitrary
-HTML, and the pattern generalises to every RAG system that ever accepts an
-upload. Detection runs over retrieved chunks before they reach the prompt.
-
-This is heuristic and defence in depth, not a guarantee. The structural
-mitigations matter more: retrieved text is delimited and labelled as data, the
-system prompt states that context is never instructions, and every claim is
-verified against its source afterwards.
-"""
-
 from __future__ import annotations
 
 import re
@@ -92,7 +75,6 @@ class InjectionReport:
 
 
 def scan_text(text: str) -> list[tuple[str, str]]:
-    """Return (pattern_name, excerpt) for each pattern that fires."""
     hits: list[tuple[str, str]] = []
     for name, pattern in _PATTERNS:
         if match := pattern.search(text):
@@ -102,7 +84,6 @@ def scan_text(text: str) -> list[tuple[str, str]]:
 
 
 def scan_contexts(contexts: Sequence[ScoredChunk]) -> InjectionReport:
-    """Scan retrieved chunks for injected instructions."""
     report = InjectionReport(scanned=len(contexts))
     for scored in contexts:
         for name, excerpt in scan_text(scored.chunk.text):
@@ -124,12 +105,6 @@ def scan_contexts(contexts: Sequence[ScoredChunk]) -> InjectionReport:
 
 
 def drop_flagged(contexts: Sequence[ScoredChunk], report: InjectionReport) -> list[ScoredChunk]:
-    """Remove flagged chunks, unless that would empty the context entirely.
-
-    Dropping every passage turns a suspicious answer into no answer at all. If
-    everything is flagged the passages are kept and the caller is expected to
-    surface the warning instead, which is more useful than a blank refusal.
-    """
     if report.is_clean:
         return list(contexts)
     flagged = report.flagged_chunk_ids

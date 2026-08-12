@@ -1,13 +1,3 @@
-"""Inject measured results into the README.
-
-The README claims specific numbers. Typing those by hand guarantees they drift
-from reality the first time anything changes, so they are written between
-markers by this script from the JSON reports the harness produces.
-
-Usage:
-    python scripts/update_readme.py
-"""
-
 from __future__ import annotations
 
 import json
@@ -38,7 +28,6 @@ def benchmark_block() -> str | None:
     if not available:
         return None
 
-    # In-sample configurations are excluded from any headline claim.
     honest = [c for c in available if not c.get("in_sample")]
     best = max(honest, key=lambda c: c["ndcg"]) if honest else available[0]
     dense_only = next((c for c in available if c["name"] == "dense only"), None)

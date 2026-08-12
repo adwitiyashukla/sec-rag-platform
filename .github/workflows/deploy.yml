@@ -1,12 +1,5 @@
 name: Deploy to Hugging Face Space
 
-# Publishes the Gradio Space. Runs only after CI and the evaluation gate have
-# both passed, so a regression cannot reach the public demo.
-#
-# The index is rebuilt here rather than committed to this repository. Free
-# Spaces have no persistent disk, so the Space needs the index shipped inside
-# it; on GitHub the same files are build output and stay gitignored.
-
 on:
   workflow_run:
     workflows: ["CI", "Evaluation gate"]
@@ -28,7 +21,7 @@ jobs:
     env:
       SECRAG_LLM_PROVIDERS: echo
       SECRAG_ENABLE_SPLADE: "false"
-      SECRAG_EDGAR_USER_AGENT: "sec-rag-platform-ci/0.1.0 (shuklaaw@mail.uc.edu)"
+      SECRAG_EDGAR_USER_AGENT: "sec-rag-platform-ci/0.1.0 (${{ secrets.EDGAR_CONTACT }})"
 
     steps:
       - uses: actions/checkout@v4

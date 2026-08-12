@@ -1,15 +1,3 @@
-"""Lexical BM25 retrieval.
-
-Dense retrieval is weak at exactly the queries financial filings attract most:
-exact tickers, statute names, defined terms, and figures. An embedding model
-maps "Item 9A" and "Item 9B" to nearly the same point; BM25 does not. Keeping a
-lexical arm is what stops the system failing on precise lookups.
-
-The index is rebuilt from the vector store on startup rather than persisted.
-For corpora of this size the rebuild costs well under a second, and it removes
-an entire class of bug where two indexes silently drift apart.
-"""
-
 from __future__ import annotations
 
 import re
@@ -24,9 +12,6 @@ from secrag.retrieval.store import SearchFilter
 
 log = get_logger(__name__)
 
-# Keeps decimals, percentages, and hyphenated terms intact. Splitting "10-K"
-# into "10" and "K", or "1.5" into "1" and "5", destroys precisely the tokens
-# that make lexical search worth having on this corpus.
 _TOKEN_RE = re.compile(r"[a-z0-9]+(?:[.\-][a-z0-9]+)*")
 
 _STOPWORDS = frozenset(
@@ -83,8 +68,6 @@ def tokenize(text: str) -> list[str]:
 
 
 class BM25Index:
-    """In-process Okapi BM25 over the corpus."""
-
     def __init__(self, settings: Settings | None = None) -> None:
         self.settings = settings or get_settings()
         self._bm25: Any = None

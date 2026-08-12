@@ -1,16 +1,3 @@
-"""Retrieval ablation benchmark.
-
-Every claim in the README about hybrid retrieval or reranking is produced by
-this module against the golden set. That is the point: "hybrid retrieval
-improves recall" is an assumption until something measures it, and an ablation
-that is cheap to re-run is the difference between an engineering decision and a
-received opinion.
-
-Generation is deliberately excluded. These configurations differ only in what
-they retrieve and how they order it, so involving a language model would add
-latency, cost, and variance without changing what is being compared.
-"""
-
 from __future__ import annotations
 
 import json
@@ -59,17 +46,6 @@ CONFIGURATIONS: tuple[Configuration, ...] = (
 
 
 def resolve_arms(arms: Sequence[str], *, enable_splade: bool) -> tuple[str, ...]:
-    """Drop retrieval arms that are unavailable in this deployment.
-
-    Returning a reduced tuple rather than discarding the whole configuration
-    matters: the reranker rows list SPLADE among their arms but are really
-    measuring the reranker, so treating SPLADE as a hard requirement removed
-    the single most useful comparison in the table from the default
-    deployment, where SPLADE is switched off.
-
-    An empty result means the configuration was *only* the unavailable arm and
-    genuinely cannot run.
-    """
     return tuple(a for a in arms if a != "splade" or enable_splade)
 
 
@@ -106,7 +82,6 @@ async def run_benchmark(
     report_path: Path | None = None,
     console: Console | None = None,
 ) -> list[ConfigurationResult]:
-    """Run every configuration over the golden set and report the comparison."""
     settings = settings or get_settings()
     engine = engine or build_engine(settings)
     engine.retriever.ensure_ready()
@@ -176,10 +151,6 @@ async def run_benchmark(
                 arms=list(arms),
                 reranker=config.reranker,
                 note="ran without the SPLADE arm" if reduced else "",
-                # The LTR model is fitted on these same golden queries, so its
-                # score here is training-set performance and is optimistic by
-                # construction. The honest estimate is the grouped
-                # cross-validation figure reported by `secrag train-ltr`.
                 in_sample=config.reranker == "ltr",
                 hit_rate=round(accumulator.mean("hit_rate"), 4),
                 ndcg=round(accumulator.mean("ndcg"), 4),
@@ -218,7 +189,6 @@ async def run_benchmark(
 
 
 def to_markdown(results: Sequence[ConfigurationResult], k: int) -> str:
-    """Render the ablation as a Markdown table for the README."""
     lines = [
         f"| Configuration | nDCG@{k} | Hit@{k} | MRR | P@{k} | Mean ms | p95 ms |",
         "|---|---:|---:|---:|---:|---:|---:|",

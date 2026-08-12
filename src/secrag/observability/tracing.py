@@ -1,14 +1,3 @@
-"""Request tracing, token accounting, and cost estimation.
-
-A RAG query is a pipeline of five or six stages, and when one is slow or wrong
-the only way to find out which is to measure each of them. Every stage opens a
-span; the spans, the token usage, and an estimated cost are returned alongside
-the answer so the UI can show exactly where the time went.
-
-Context propagation uses contextvars, so this works correctly under asyncio
-without threading a trace object through every function signature.
-"""
-
 from __future__ import annotations
 
 import time
@@ -19,9 +8,6 @@ from contextvars import ContextVar, Token
 from dataclasses import dataclass, field
 from typing import Any
 
-# Published list prices in USD per million tokens, used only to estimate what a
-# request would cost at paid rates. Actual spend on the free tier is zero.
-# Kept here rather than scattered so it is trivial to correct.
 PRICE_PER_MTOK: dict[str, tuple[float, float]] = {
     "llama-3.3-70b-versatile": (0.59, 0.79),
     "llama-3.1-8b-instant": (0.05, 0.08),
@@ -34,8 +20,6 @@ _DEFAULT_PRICE = (0.0, 0.0)
 
 @dataclass(slots=True)
 class Span:
-    """One timed stage of a request."""
-
     name: str
     start_ms: float
     end_ms: float | None = None
@@ -83,8 +67,6 @@ class TokenUsage:
 
 @dataclass(slots=True)
 class Trace:
-    """A complete record of one request."""
-
     trace_id: str
     started_ms: float
     spans: list[Span] = field(default_factory=list)
@@ -103,7 +85,6 @@ class Trace:
         self.cost_usd += (prompt_tokens * in_price + completion_tokens * out_price) / 1_000_000
 
     def stage_timings(self) -> dict[str, float]:
-        """Total milliseconds per top level stage, for the latency breakdown."""
         out: dict[str, float] = {}
         for span in self.spans:
             if span.depth == 0:
@@ -141,7 +122,6 @@ def current_trace_id() -> str | None:
 
 @contextmanager
 def start_trace(trace_id: str | None = None, **metadata: Any) -> Iterator[Trace]:
-    """Begin a trace and make it the ambient trace for this context."""
     trace = Trace(
         trace_id=trace_id or uuid.uuid4().hex[:16],
         started_ms=_now_ms(),
@@ -159,11 +139,6 @@ def start_trace(trace_id: str | None = None, **metadata: Any) -> Iterator[Trace]
 
 @contextmanager
 def span(name: str, **attributes: Any) -> Iterator[Span]:
-    """Time a stage and attach it to the ambient trace.
-
-    Safe to use with no active trace: the span is still yielded so callers can
-    annotate it, it simply is not recorded anywhere.
-    """
     trace = _current_trace.get()
     depth = _current_depth.get()
     current = Span(name=name, start_ms=_now_ms(), depth=depth, attributes=dict(attributes))
@@ -181,15 +156,9 @@ def span(name: str, **attributes: Any) -> Iterator[Span]:
 
 
 def record_usage(model: str, prompt_tokens: int, completion_tokens: int) -> None:
-    """Record token usage against the ambient trace, if there is one."""
     if (trace := _current_trace.get()) is not None:
         trace.record_usage(model, prompt_tokens, completion_tokens)
 
 
 def estimate_tokens(text: str) -> int:
-    """Cheap token estimate used when a provider does not report usage.
-
-    Roughly four characters per token holds well enough for English prose to be
-    useful for budgeting. It is explicitly an estimate, never billed against.
-    """
     return max(1, len(text) // 4)

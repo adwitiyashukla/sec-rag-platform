@@ -1,14 +1,3 @@
-"""Prompt templates.
-
-Kept in one module rather than inlined at call sites, because prompts are the
-part of a RAG system most likely to change and the part whose changes are
-hardest to review when they are scattered through business logic.
-
-The grounding instructions are deliberately strict. On financial filings the
-failure that matters is not an unhelpful answer, it is a confident wrong
-number, so the prompt makes refusal an explicitly acceptable outcome.
-"""
-
 from __future__ import annotations
 
 from collections.abc import Sequence
@@ -38,11 +27,6 @@ REFUSAL_NO_CONTEXT = (
 
 
 def format_contexts(contexts: Sequence[ScoredChunk]) -> str:
-    """Render retrieved chunks as numbered, labelled blocks.
-
-    The marker, the provenance label, and the body are on predictable lines so
-    that both the model and the offline test provider can parse them.
-    """
     blocks: list[str] = []
     for i, scored in enumerate(contexts, start=1):
         chunk = scored.chunk
@@ -51,7 +35,6 @@ def format_contexts(contexts: Sequence[ScoredChunk]) -> str:
 
 
 def format_numeric(results: Sequence[NumericResult]) -> str:
-    """Render figures computed from XBRL as an authoritative block."""
     if not results:
         return ""
     lines = ["Verified figures, computed from filed XBRL data:"]

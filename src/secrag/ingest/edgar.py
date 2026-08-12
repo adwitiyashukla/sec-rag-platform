@@ -1,14 +1,3 @@
-"""SEC EDGAR client.
-
-EDGAR is a public API with two hard rules: send a descriptive User-Agent that
-includes a contact address, and stay under ten requests per second. Both are
-enforced here rather than left to the caller, because violating either gets an
-IP blocked and there is no way to test your way out of that afterwards.
-
-Responses are cached on disk. Filings are immutable once filed, so a cache hit
-is always correct, and it makes repeated evaluation runs fast and polite.
-"""
-
 from __future__ import annotations
 
 import asyncio
@@ -32,8 +21,6 @@ SEC_DATA = "https://data.sec.gov"
 
 @dataclass(frozen=True, slots=True)
 class FilingRef:
-    """Enough to locate one filing's primary document."""
-
     cik: str
     company: str
     ticker: str | None
@@ -50,8 +37,6 @@ class FilingRef:
 
     @property
     def document_url(self) -> str:
-        # The archive path drops leading zeros from the CIK, unlike every other
-        # EDGAR endpoint. This inconsistency is a common source of 404s.
         return (
             f"{SEC_WWW}/Archives/edgar/data/{int(self.cik)}"
             f"/{self.accession_plain}/{self.primary_document}"
@@ -63,15 +48,6 @@ class FilingRef:
 
 
 def _decode(payload: bytes) -> str:
-    """Decode a filing, trying the encodings EDGAR actually serves.
-
-    Relying on httpx's response.text is wrong here. Many filings declare no
-    charset, or declare one that does not match their bytes, and the fallback
-    guess mangles typographic quotes into replacement characters. Those then
-    survive into chunks, embeddings, and quoted citations, so the corruption is
-    visible to the end user. Trying UTF-8 first and cp1252 second covers
-    essentially the entire corpus.
-    """
     for encoding in ("utf-8", "cp1252", "latin-1"):
         try:
             return payload.decode(encoding)
@@ -81,8 +57,6 @@ def _decode(payload: bytes) -> str:
 
 
 class RateLimiter:
-    """Serialises requests to a fixed maximum rate."""
-
     def __init__(self, per_second: float) -> None:
         self._min_interval = 1.0 / per_second
         self._lock = asyncio.Lock()
@@ -97,8 +71,6 @@ class RateLimiter:
 
 
 class EdgarClient:
-    """Async EDGAR client with disk caching and rate limiting."""
-
     def __init__(self, settings: Settings | None = None) -> None:
         self.settings = settings or get_settings()
         self.cache_dir: Path = self.settings.raw_dir / "edgar"
@@ -128,8 +100,6 @@ class EdgarClient:
     async def aclose(self) -> None:
         if self._client is not None and not self._client.is_closed:
             await self._client.aclose()
-
-    # -- fetching ---------------------------------------------------------
 
     def _cache_path(self, key: str) -> Path:
         safe = "".join(c if c.isalnum() or c in "._-" else "_" for c in key)
@@ -178,10 +148,7 @@ class EdgarClient:
             raise EdgarError(msg)
         return data
 
-    # -- lookups ----------------------------------------------------------
-
     async def ticker_map(self) -> dict[str, tuple[str, str]]:
-        """Map upper-case ticker to (zero padded CIK, company name)."""
         data = await self._get_json(f"{SEC_WWW}/files/company_tickers.json", "company_tickers.json")
         out: dict[str, tuple[str, str]] = {}
         for entry in data.values():
@@ -207,7 +174,6 @@ class EdgarClient:
     async def find_filings(
         self, ticker: str, *, form: str = "10-K", years: int = 3
     ) -> list[FilingRef]:
-        """Return the most recent filings of a given form for a ticker."""
         cik, company = await self.resolve_ticker(ticker)
         data = await self._get_json(
             f"{SEC_DATA}/submissions/CIK{cik}.json", f"submissions_CIK{cik}.json"
@@ -226,8 +192,6 @@ class EdgarClient:
                 continue
             report_date = report_dates[i] if i < len(report_dates) else ""
             filing_date = filing_dates[i] if i < len(filing_dates) else ""
-            # Fiscal year comes from the period covered, not the filing date. A
-            # 10-K for FY2023 is typically filed in calendar 2024.
             year_source = report_date or filing_date
             if not year_source:
                 continue
@@ -253,15 +217,9 @@ class EdgarClient:
         return results
 
     async def fetch_document(self, ref: FilingRef) -> str:
-        """Download the primary document HTML for a filing."""
         return await self._get(ref.document_url, f"{ref.filing_id}_{ref.primary_document}")
 
     async def company_facts(self, cik: str) -> dict[str, Any]:
-        """Structured XBRL facts for a company.
-
-        This is the machine-readable numeric data behind the filing. Using it
-        removes any need to parse figures out of prose or HTML tables.
-        """
         cik = cik.zfill(10)
         return await self._get_json(
             f"{SEC_DATA}/api/xbrl/companyfacts/CIK{cik}.json", f"companyfacts_CIK{cik}.json"

@@ -1,11 +1,3 @@
-"""Google Gemini provider.
-
-Used as the fallback arm of the chain. Gemini's wire format differs from the
-OpenAI shape in three ways that matter: the system prompt is a separate field,
-the assistant role is called "model", and usage lives under usageMetadata. All
-three are normalised here so callers never see the difference.
-"""
-
 from __future__ import annotations
 
 import json

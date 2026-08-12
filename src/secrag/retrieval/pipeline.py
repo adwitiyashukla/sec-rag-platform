@@ -1,20 +1,3 @@
-"""Hybrid retrieval pipeline.
-
-Three arms run against the same corpus and are fused by rank, then a reranker
-reorders the survivors:
-
-    query -> [ dense | bm25 | splade ] -> RRF -> rerank -> top_k
-
-Each arm fails differently, which is the reason to keep all three. Dense
-retrieval understands paraphrase but blurs near-identical identifiers. BM25 is
-exact but blind to synonyms. SPLADE sits between the two, expanding terms in
-learned rather than lexical space. Fusing them recovers documents that any one
-arm alone would have missed.
-
-Arms can be enabled individually, which is what makes the ablation table in the
-README a measurement rather than a claim.
-"""
-
 from __future__ import annotations
 
 import threading
@@ -43,8 +26,6 @@ ALL_ARMS = ("dense", "bm25", "splade")
 
 @dataclass(slots=True)
 class RetrievalResult:
-    """Final ranking plus the intermediate state needed to explain it."""
-
     chunks: list[ScoredChunk]
     arms: dict[str, list[ScoredChunk]] = field(default_factory=dict)
     fused: list[ScoredChunk] = field(default_factory=list)
@@ -56,8 +37,6 @@ class RetrievalResult:
 
 
 class HybridRetriever:
-    """Owns the retrieval arms, fusion, and reranking."""
-
     def __init__(
         self,
         settings: Settings | None = None,
@@ -70,19 +49,9 @@ class HybridRetriever:
         self.store = store or VectorStore(self.settings, self.embedder)
         self.bm25 = bm25 or BM25Index(self.settings)
         self._rerankers: dict[str, Reranker] = {}
-        # Same reasoning as the store and the embedder: warmup runs on a
-        # worker thread alongside live requests, so building the BM25 index
-        # and constructing rerankers are both genuinely concurrent.
         self._lock = threading.Lock()
 
-    # -- lifecycle --------------------------------------------------------
-
     def ensure_ready(self, *, force: bool = False) -> int:
-        """Build the BM25 index from the vector store.
-
-        Derived from the store rather than persisted separately, so the lexical
-        and vector views of the corpus cannot drift apart.
-        """
         if self.bm25.is_ready and not force:
             return self.bm25.size
         with self._lock:
@@ -101,15 +70,12 @@ class HybridRetriever:
     def corpus_size(self) -> int:
         return self.store.count()
 
-    # -- retrieval --------------------------------------------------------
-
     def run_arms(
         self,
         query: str,
         flt: SearchFilter | None = None,
         arms: Sequence[str] = ALL_ARMS,
     ) -> dict[str, list[ScoredChunk]]:
-        """Run each enabled retrieval arm independently."""
         results: dict[str, list[ScoredChunk]] = {}
 
         if "dense" in arms:
@@ -136,7 +102,6 @@ class HybridRetriever:
         reranker: str = "cross_encoder",
         weights: dict[str, float] | None = None,
     ) -> RetrievalResult:
-        """Full pipeline: retrieve, fuse, rerank."""
         top_k = top_k or self.settings.rerank_top_n
 
         with span("retrieve", query_chars=len(query), arms=list(arms), reranker=reranker):
@@ -145,8 +110,6 @@ class HybridRetriever:
                 log.info("retrieval_empty", query=query[:80])
                 return RetrievalResult(chunks=[], arms={}, fused=[], reranker=reranker)
 
-            # With a single arm there is nothing to fuse, and running RRF anyway
-            # would replace real scores with reciprocal ranks for no benefit.
             if len(arm_results) == 1:
                 fused = list(next(iter(arm_results.values())))[: self.settings.rerank_candidates]
             else:
@@ -170,14 +133,6 @@ class HybridRetriever:
         return RetrievalResult(chunks=ranked, arms=arm_results, fused=fused, reranker=engine.name)
 
     def warmup(self) -> None:
-        """Load every model and index before the first request arrives.
-
-        Every reranker is loaded, not just the default one. Warming only the
-        cross-encoder left the first learning-to-rank request paying the model
-        load itself, which measured around five seconds against roughly 150 ms
-        once warm. A user switching reranker in the UI met that delay and had
-        no way to know it was one-time.
-        """
         self.embedder.warmup()
         self.ensure_ready()
 
@@ -186,7 +141,7 @@ class HybridRetriever:
             if isinstance(engine, CrossEncoderReranker):
                 engine.warmup()
             elif isinstance(engine, LTRReranker):
-                engine.booster  # noqa: B018 - touching the property forces the load
+                _ = engine.booster
 
         log.info(
             "retriever_warm",

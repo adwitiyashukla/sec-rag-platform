@@ -1,19 +1,3 @@
-"""Retrieval and generation metrics.
-
-Implemented directly rather than pulled from a framework, for two reasons.
-Ranking metrics have subtle conventions that matter (what counts as relevant,
-how ties break, what happens when a query has no relevant document at all), and
-a metric whose definition you cannot see is a metric you cannot defend in a
-review. Second, every metric here is deterministic and needs no model call, so
-the whole suite runs in CI in seconds with no API key and no flaky network.
-
-Relevance judgement is weak supervision, and it is worth being upfront about
-that: rather than hand-labelling every chunk, a chunk counts as relevant when it
-comes from the expected 10-K Item and contains at least one expected term. That
-is a proxy, not ground truth. It is stable, reproducible, and good enough to
-detect regressions, which is what the CI gate needs it for.
-"""
-
 from __future__ import annotations
 
 import math
@@ -27,7 +11,6 @@ from secrag.core.types import ScoredChunk
 def is_relevant(
     scored: ScoredChunk, expected_sections: Sequence[str], expected_terms: Sequence[str]
 ) -> bool:
-    """Weak relevance judgement for one retrieved chunk."""
     if expected_sections and scored.chunk.section.value not in expected_sections:
         return False
     if not expected_terms:
@@ -44,13 +27,7 @@ def relevance_vector(
     return [1 if is_relevant(r, expected_sections, expected_terms) else 0 for r in results]
 
 
-# --------------------------------------------------------------------------
-# Ranking metrics
-# --------------------------------------------------------------------------
-
-
 def hit_rate_at_k(relevance: Sequence[int], k: int) -> float:
-    """1.0 if any relevant document appears in the top k."""
     return 1.0 if any(relevance[:k]) else 0.0
 
 
@@ -60,13 +37,6 @@ def precision_at_k(relevance: Sequence[int], k: int) -> float:
 
 
 def recall_at_k(relevance: Sequence[int], k: int, total_relevant: int | None = None) -> float:
-    """Recall against relevant documents found anywhere in the result list.
-
-    Exhaustive labels do not exist for this corpus, so the denominator is the
-    number of relevant documents the system retrieved at all. This measures
-    ranking quality rather than absolute recall, and it is only compared
-    against itself across runs, which is what a regression gate needs.
-    """
     denominator = total_relevant if total_relevant is not None else sum(relevance)
     return sum(relevance[:k]) / denominator if denominator else 0.0
 
@@ -83,25 +53,14 @@ def dcg_at_k(relevance: Sequence[int], k: int) -> float:
 
 
 def ndcg_at_k(relevance: Sequence[int], k: int) -> float:
-    """Normalised DCG, rewarding relevant documents ranked higher."""
     ideal = dcg_at_k(sorted(relevance, reverse=True), k)
     return dcg_at_k(relevance, k) / ideal if ideal > 0 else 0.0
 
-
-# --------------------------------------------------------------------------
-# Generation metrics
-# --------------------------------------------------------------------------
 
 _MARKER_RE = re.compile(r"\[(\d{1,2})\]")
 
 
 def citation_validity(answer_text: str, n_contexts: int) -> float:
-    """Fraction of citation markers that point at a real context.
-
-    A model that invents [7] when six passages were supplied has produced an
-    unverifiable citation, which is worse than no citation because it looks
-    checkable.
-    """
     markers = [int(m) for m in _MARKER_RE.findall(answer_text)]
     if not markers:
         return 0.0
@@ -110,13 +69,6 @@ def citation_validity(answer_text: str, n_contexts: int) -> float:
 
 
 def citation_density(answer_text: str) -> float:
-    """Fraction of claim spans that carry a citation.
-
-    Measured per claim span rather than per sentence, matching how
-    groundedness is scored. A per-sentence count penalises the ordinary and
-    correct habit of stating a few sentences and citing once at the end, so it
-    reports low numbers for answers that are fully attributed.
-    """
     from secrag.generation.grounding import split_claims
 
     claims = split_claims(answer_text)
@@ -127,7 +79,6 @@ def citation_density(answer_text: str) -> float:
 
 
 def answer_contains(answer_text: str, required: Sequence[str]) -> float:
-    """Fraction of required terms that appear in the answer."""
     if not required:
         return 1.0
     lowered = answer_text.lower()
@@ -137,11 +88,6 @@ def answer_contains(answer_text: str, required: Sequence[str]) -> float:
 def numeric_accuracy(
     actual: float | None, expected: float | None, tolerance_pct: float = 1.0
 ) -> float | None:
-    """1.0 when a computed figure matches the expected value within tolerance.
-
-    Returns None when the case is not numeric, so it can be excluded from the
-    average rather than counted as a zero.
-    """
     if expected is None:
         return None
     if actual is None:
@@ -151,15 +97,8 @@ def numeric_accuracy(
     return 1.0 if abs(actual - expected) / abs(expected) * 100.0 <= tolerance_pct else 0.0
 
 
-# --------------------------------------------------------------------------
-# Aggregation
-# --------------------------------------------------------------------------
-
-
 @dataclass(slots=True)
 class MetricAccumulator:
-    """Collects per-case values and reports means, skipping None."""
-
     values: dict[str, list[float]] = field(default_factory=dict)
 
     def add(self, name: str, value: float | None) -> None:

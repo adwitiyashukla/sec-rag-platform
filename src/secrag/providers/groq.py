@@ -1,10 +1,3 @@
-"""Groq provider.
-
-Groq exposes an OpenAI-compatible surface, so this is a thin, explicit client
-rather than a heavyweight SDK dependency. Being explicit here also means the
-retry policy and the token accounting are visible instead of buried.
-"""
-
 from __future__ import annotations
 
 import json

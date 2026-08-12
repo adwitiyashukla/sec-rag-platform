@@ -1,19 +1,3 @@
-"""Chunking.
-
-Chunk boundaries decide what the retriever can ever find, so this is one of the
-highest-leverage components in a RAG system and one of the most commonly done
-badly. Three decisions matter here:
-
-1. Prose splits on sentence boundaries, never mid-sentence. A chunk that begins
-   halfway through a clause embeds poorly and reads worse when cited.
-2. Tables that must be split repeat their header row in every part. A fragment
-   of a financial table without column headers is not just less useful, it is
-   actively misleading, because the model cannot tell which period a figure
-   belongs to.
-3. Chunk ids are deterministic hashes of their content, so re-ingesting a
-   filing is idempotent rather than duplicating the corpus.
-"""
-
 from __future__ import annotations
 
 import hashlib
@@ -26,13 +10,6 @@ from secrag.ingest.parser import Block
 
 log = get_logger(__name__)
 
-# Sentence splitter tuned for filings. The negative lookbehind keeps common
-# financial abbreviations from being treated as sentence ends, which otherwise
-# shreds passages such as "Inc. reported" or "U.S. GAAP requires".
-# Each lookbehind must include the trailing period. The split point sits
-# *after* that period, so a guard written as (?<!\bU\.S) inspects ".S." and
-# never fires. The bug is silent: "U.S. GAAP requires disclosure" quietly
-# becomes two chunks, one of which is the fragment "U.S.".
 _ABBREV = (
     r"(?<!\bInc\.)(?<!\bCorp\.)(?<!\bLtd\.)(?<!\bCo\.)(?<!\bNo\.)"
     r"(?<!\bU\.S\.)(?<!\bApprox\.)(?<!\bFig\.)(?<!\bLLC\.)(?<!\bPLC\.)"
@@ -41,19 +18,10 @@ _ABBREV = (
 _SENTENCE_RE = re.compile(rf"{_ABBREV}(?<=[.!?])[\"')\]]*\s+(?=[A-Z(\"'\[])")
 
 _MIN_CHUNK_CHARS = 120
-# A chunk this short carries no retrievable meaning. These come from stray
-# headings, page numbers, and signature fragments, and they cost a retrieval
-# slot without ever being able to answer anything.
 _MIN_CHUNK_TOKENS = 20
 
 
 def estimate_tokens(text: str) -> int:
-    """Character-based token estimate.
-
-    Deliberately not a real tokenizer: chunking runs over every block of every
-    filing, and loading a tokenizer here would dominate ingestion time for an
-    accuracy gain that does not change where the boundaries land.
-    """
     return max(1, len(text) // 4)
 
 
@@ -68,7 +36,6 @@ def split_sentences(text: str) -> list[str]:
 
 
 def _pack_sentences(sentences: list[str], target: int, overlap: int) -> list[str]:
-    """Greedily pack sentences into windows with a sentence-aligned overlap."""
     windows: list[str] = []
     current: list[str] = []
     current_tokens = 0
@@ -76,8 +43,6 @@ def _pack_sentences(sentences: list[str], target: int, overlap: int) -> list[str
     for sentence in sentences:
         tokens = estimate_tokens(sentence)
 
-        # A single sentence longer than the window is split on whitespace as a
-        # last resort. Rare in filings, but it must not silently drop text.
         if tokens > target * 1.5:
             if current:
                 windows.append(" ".join(current))
@@ -90,7 +55,6 @@ def _pack_sentences(sentences: list[str], target: int, overlap: int) -> list[str
 
         if current_tokens + tokens > target and current:
             windows.append(" ".join(current))
-            # Carry back trailing sentences to form the overlap.
             carry: list[str] = []
             carried = 0
             for prev in reversed(current):
@@ -110,7 +74,6 @@ def _pack_sentences(sentences: list[str], target: int, overlap: int) -> list[str
 
 
 def _split_table(rendered: str, max_tokens: int) -> list[str]:
-    """Split a large table by rows, repeating the header in each part."""
     rows = [r for r in rendered.split("\n") if r.strip()]
     if estimate_tokens(rendered) <= max_tokens or len(rows) <= 2:
         return [rendered]
@@ -135,13 +98,6 @@ def _split_table(rendered: str, max_tokens: int) -> list[str]:
 
 
 def _group_blocks(blocks: list[Block]) -> list[Block]:
-    """Merge consecutive prose blocks that share a section.
-
-    The parser emits paragraph-level blocks so section boundaries land exactly.
-    Packing each paragraph separately would produce many undersized chunks, so
-    neighbours in the same section are joined back into one passage first.
-    Tables are never merged, since each is a self-contained unit.
-    """
     merged: list[Block] = []
     for block in blocks:
         if (
@@ -170,7 +126,6 @@ def _group_blocks(blocks: list[Block]) -> list[Block]:
 def chunk_blocks(
     blocks: list[Block], filing: Filing, settings: Settings | None = None
 ) -> list[Chunk]:
-    """Turn parsed blocks into retrievable chunks."""
     settings = settings or get_settings()
     chunks: list[Chunk] = []
     per_section: dict[str, int] = {}

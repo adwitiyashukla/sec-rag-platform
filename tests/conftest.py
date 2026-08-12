@@ -1,10 +1,3 @@
-"""Shared fixtures.
-
-Every fixture here is offline. Tests that need a real embedding model are
-marked `integration` and are the exception, not the rule, so the default suite
-runs in seconds with no network and no API key.
-"""
-
 from __future__ import annotations
 
 import hashlib
@@ -92,17 +85,6 @@ def scored_chunks() -> list[ScoredChunk]:
 
 
 class FakeEmbedder:
-    """Hashed bag-of-words embeddings.
-
-    Not a language model, but semantic enough for the logic under test: texts
-    sharing vocabulary land near each other, and unrelated texts do not. A
-    purely hash-of-the-whole-string fake would make any edit to a sentence
-    produce an unrelated vector, which silently breaks tests about grouping and
-    similarity while appearing to work.
-
-    Keeps the unit suite free of a 67 MB model download.
-    """
-
     def __init__(self, dim: int = 64) -> None:
         self.dim = dim
 

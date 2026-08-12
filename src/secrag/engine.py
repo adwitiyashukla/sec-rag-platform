@@ -1,17 +1,3 @@
-"""Query engine.
-
-The top-level orchestrator. Everything below it is a component with one job;
-this is the only place that knows the order they run in:
-
-    cache -> route -> [numeric plan] -> retrieve -> generate -> verify -> cache
-
-Two ordering decisions are load-bearing. The cache is checked before routing,
-because a hit makes every downstream stage unnecessary including the router.
-And the numeric plan runs before retrieval, because a resolved figure is passed
-into the prompt as authoritative context rather than being reconciled against
-the model's own arithmetic afterwards.
-"""
-
 from __future__ import annotations
 
 import time
@@ -44,23 +30,16 @@ log = get_logger(__name__)
 
 
 class QueryEngine:
-    """Owns the full question-to-answer path and its shared state."""
-
     def __init__(self, settings: Settings | None = None) -> None:
         self.settings = settings or get_settings()
         self.settings.ensure_dirs()
 
-        # One embedder shared by retrieval, routing, grounding, and the cache.
-        # Loading the model four times would quadruple both memory and cold
-        # start for no benefit.
         self.embedder = Embedder(self.settings)
         self.retriever = HybridRetriever(self.settings, embedder=self.embedder)
         self.generator = Generator(self.settings, embedder=self.embedder)
         self.router = QueryRouter(self.settings, embedder=self.embedder)
         self.cache = SemanticCache(self.settings, embedder=self.embedder)
         self.facts = FactStore.load(self.settings)
-
-    # -- lifecycle --------------------------------------------------------
 
     def warmup(self) -> None:
         self.retriever.warmup()
@@ -96,8 +75,6 @@ class QueryEngine:
             },
         }
 
-    # -- helpers ----------------------------------------------------------
-
     def _filter(self, request: QueryRequest) -> SearchFilter:
         return SearchFilter(
             tickers=request.companies,
@@ -111,7 +88,6 @@ class QueryEngine:
         )
 
     def _numeric(self, question: str, route: RouteDecision) -> list[NumericResult]:
-        """Resolve figures from XBRL when the question is asking for one."""
         if route.intent not in (QueryIntent.NUMERIC, QueryIntent.COMPARATIVE):
             return []
         if self.facts.is_empty:
@@ -126,8 +102,6 @@ class QueryEngine:
     def _retrieve(
         self, request: QueryRequest, route: RouteDecision
     ) -> tuple[list[ScoredChunk], str]:
-        # A comparative question needs headroom to cover several companies, so
-        # a fixed top_k would starve all but the first.
         top_k = request.top_k
         if route.intent is QueryIntent.COMPARATIVE:
             top_k = min(top_k * 2, 20)
@@ -137,8 +111,6 @@ class QueryEngine:
             request.question, top_k=top_k, flt=self._filter(request), reranker=reranker
         )
         return result.chunks, result.reranker
-
-    # -- main path --------------------------------------------------------
 
     async def answer(self, request: QueryRequest) -> QueryResponse:
         started = time.perf_counter()
@@ -154,8 +126,6 @@ class QueryEngine:
             numeric = self._numeric(request.question, route)
             contexts, reranker = self._retrieve(request, route)
 
-            # A resolved figure is a real answer even when the narrative
-            # retrieval comes back empty, so this is not treated as a failure.
             if not contexts and not numeric:
                 return self._empty_response(request, route, trace, started)
 
@@ -182,9 +152,6 @@ class QueryEngine:
                 }
             )
 
-        # Refusals are not cached: they are usually a symptom of a gap in the
-        # corpus, and caching one would keep returning it after the gap is
-        # filled by a later ingestion.
         if request.use_cache and response.answer.status is AnswerStatus.OK:
             self.cache.put(request.question, response, partition)
 
@@ -214,20 +181,7 @@ class QueryEngine:
             latency_ms=round((time.perf_counter() - started) * 1000, 2),
         )
 
-    # -- streaming --------------------------------------------------------
-
     async def stream(self, request: QueryRequest) -> AsyncIterator[dict[str, Any]]:
-        """Yield structured events for server-sent events.
-
-        Metadata is emitted before the first token so the client can render
-        sources and the routing decision while the answer is still arriving,
-        and the verification verdict is emitted at the end because it cannot
-        exist until the answer is complete.
-
-        A cache hit replays the stored answer through the same event sequence
-        rather than short-circuiting it, so the client renders a cached result
-        identically to a fresh one and needs no special case.
-        """
         started = time.perf_counter()
         partition = self._partition(request)
 
@@ -284,8 +238,6 @@ class QueryEngine:
                         "status": AnswerStatus.REFUSED_NO_CONTEXT.value,
                         "groundedness": 0.0,
                         "citations": [],
-                        # Present on every done event, so a client never has to
-                        # distinguish "not cached" from "field absent".
                         "cached": False,
                         "latency_ms": round((time.perf_counter() - started) * 1000, 2),
                         "trace": trace.to_dict(),
@@ -303,10 +255,6 @@ class QueryEngine:
             )
             latency_ms = round((time.perf_counter() - started) * 1000, 2)
 
-            # Store on the way out, on the same terms as the non-streaming
-            # path: successful answers only, because a refusal usually means a
-            # gap in the corpus and caching one keeps returning it after a
-            # later ingestion has filled the gap.
             if request.use_cache and final.answer.status is AnswerStatus.OK:
                 self.cache.put(
                     request.question,

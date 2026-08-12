@@ -1,21 +1,3 @@
-"""Publish the Hugging Face Space.
-
-Builds a clean working copy in a temporary directory and pushes it, rather than
-adding a second remote to this repository. The two repositories genuinely need
-different contents:
-
-- The Space needs a README with YAML frontmatter telling Hugging Face which SDK
-  to run. That block would be the first thing a visitor to GitHub reads.
-- The Space needs the prebuilt index committed. Free Spaces have no persistent
-  disk, so ingesting on boot would re-download nine 10-K filings from EDGAR on
-  every restart, take about five minutes, and show the first visitor an empty
-  corpus. The same files are deliberately gitignored on GitHub, where they are
-  build output.
-
-Usage:
-    python scripts/deploy_space.py --username adwitiyashukla
-"""
-
 from __future__ import annotations
 
 import argparse
@@ -29,7 +11,6 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 
-# Everything the Space needs to run, and nothing it does not.
 INCLUDE = [
     "app.py",
     "requirements.txt",
@@ -39,10 +20,8 @@ INCLUDE = [
     "ui",
     "evals/goldens",
     "evals/thresholds.json",
-    "docs",
 ]
 
-# Build output, gitignored on GitHub, required here.
 INCLUDE_INDEX = [
     "data/index/qdrant",
     "data/index/facts.parquet",
@@ -80,8 +59,6 @@ def run(cmd: list[str], cwd: Path, quiet: bool = False) -> None:
         print("  " + result.stdout.strip().splitlines()[-1])
 
 
-# The Hub enforces these and rejects the push otherwise. Checking locally turns
-# a confusing pre-receive hook failure into an obvious message.
 FRONTMATTER_LIMITS = {"short_description": 60, "title": 100}
 
 
@@ -114,7 +91,7 @@ def check_index() -> None:
 
 
 def main() -> int:
-    parser = argparse.ArgumentParser(description=__doc__)
+    parser = argparse.ArgumentParser(description="Publish the Hugging Face Space")
     parser.add_argument("--username", required=True, help="Hugging Face username")
     parser.add_argument("--space", default="sec-rag-platform", help="Space name")
     args = parser.parse_args()
@@ -122,8 +99,6 @@ def main() -> int:
     check_frontmatter()
     check_index()
 
-    # CI supplies the token through the environment; a human is prompted, and
-    # the input is hidden either way so it never lands in shell history.
     token = (os.environ.get("HF_TOKEN") or "").strip()
     if token:
         print("Using HF_TOKEN from the environment.")
@@ -163,14 +138,11 @@ def main() -> int:
             print(f"  {rel:<32} {size / 1e6:>7.1f} MB")
         print(f"  {'total':<32} {total / 1e6:>7.1f} MB")
 
-        # The Space README carries the SDK config; the GitHub one stays clean.
         readme = ROOT / "README.md"
         (staging / "README.md").write_text(
             FRONTMATTER + readme.read_text(encoding="utf-8"), encoding="utf-8"
         )
 
-        # The Space must never re-ingest, and must never load the 508 MB
-        # sparse model on a shared free-tier box.
         (staging / ".env").write_text(
             "SECRAG_ENABLE_SPLADE=false\nSECRAG_LOG_JSON=true\n", encoding="utf-8"
         )
@@ -185,10 +157,6 @@ def main() -> int:
             quiet=True,
         )
 
-        # The Hub rejects any file over 10 MiB that is not in Git LFS, and the
-        # Qdrant store is around 29 MB. The attributes file must be committed
-        # before the large file is staged; otherwise git stores it verbatim and
-        # the push is rejected by a pre-receive hook with no obvious cause.
         run(["git", "lfs", "install", "--local"], staging, quiet=True)
         (staging / ".gitattributes").write_text(
             "*.sqlite filter=lfs diff=lfs merge=lfs -text\n"

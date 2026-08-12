@@ -1,24 +1,3 @@
-"""Learning-to-rank training.
-
-Trains a LambdaMART model to reorder fused candidates, as a cheap alternative
-to the neural cross-encoder.
-
-The interesting question is not whether gradient boosting can rank, it is
-whether cheap retrieval features carry enough signal to approach a model that
-actually reads the passage. The benchmark answers that empirically rather than
-assuming either way.
-
-Two methodological points, because a learned ranker is easy to fool yourself
-with:
-
-- Labels come from the same weak relevance judgement the evaluation uses, so
-  the ranker is optimising exactly what is being measured. That is a strength
-  for regression detection and a limitation for absolute claims, and it is
-  stated rather than hidden.
-- Splitting is by query, never by row. Candidates from one query appearing in
-  both train and test would leak, and the resulting nDCG would be meaningless.
-"""
-
 from __future__ import annotations
 
 import json
@@ -52,14 +31,12 @@ class TrainingSample:
 
     @property
     def has_signal(self) -> bool:
-        """A query with all-relevant or no-relevant candidates teaches nothing."""
         return 0 < int(self.labels.sum()) < self.n_candidates
 
 
 def collect_samples(
     engine: QueryEngine, cases: list[GoldenCase], *, settings: Settings
 ) -> list[TrainingSample]:
-    """Build labelled training data from fused, unreranked candidates."""
     samples: list[TrainingSample] = []
 
     for case in cases:
@@ -104,7 +81,6 @@ def train_ltr_model(
     n_folds: int = 4,
     seed: int = 42,
 ) -> dict[str, Any]:
-    """Train, evaluate by grouped cross-validation, and persist the ranker."""
     import lightgbm as lgb
 
     settings = settings or get_settings()
@@ -159,13 +135,10 @@ def train_ltr_model(
         for sample in test:
             predicted = booster.predict(sample.features)
             fold_scores.append(_ndcg(np.asarray(predicted), sample.labels, settings.eval_k))
-            # Fusion order is the baseline: features are ordered by RRF already,
-            # so the identity ranking is exactly "no reranking".
             baseline_scores.append(
                 metrics.ndcg_at_k([int(v) for v in sample.labels], settings.eval_k)
             )
 
-    # Final model trained on everything, since the estimate is already in hand.
     full = lgb.Dataset(
         np.vstack([s.features for s in samples]),
         label=np.concatenate([s.labels for s in samples]),

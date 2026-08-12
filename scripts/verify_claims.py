@@ -1,12 +1,3 @@
-"""Cross-check the README against the reports it claims to summarise.
-
-Documentation drifts from reality the moment either changes independently.
-This asserts that every headline number in the README still matches the JSON
-the harness produced, and that nothing secret has been committed.
-
-Run before publishing:  python scripts/verify_claims.py
-"""
-
 from __future__ import annotations
 
 import json
@@ -103,7 +94,6 @@ check("no index data tracked", not any(t.startswith("data/index/qdrant") for t i
 check("no model weights tracked", not any(t.startswith("data/models/") for t in tracked))
 check("no raw filings tracked", not any(t.startswith("data/raw/edgar") for t in tracked))
 
-# Provider keys have recognisable prefixes, so scan for them directly.
 key_pattern = re.compile(r"\b(gsk_[A-Za-z0-9]{20,}|sk-[A-Za-z0-9]{20,}|AIza[A-Za-z0-9_\-]{30,})")
 leaked = []
 for rel in tracked:
@@ -117,8 +107,6 @@ for rel in tracked:
         continue
 check("no API keys in tracked files", not leaked, "; ".join(leaked))
 
-# Built from its codepoint rather than written literally, so this file does
-# not match its own search and report a false positive.
 EM_DASH = chr(0x2014)
 
 print("\nThe em dash character does not appear in any tracked file")

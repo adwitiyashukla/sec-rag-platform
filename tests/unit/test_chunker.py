@@ -1,5 +1,3 @@
-"""Chunking behaviour."""
-
 from __future__ import annotations
 
 from secrag.core.config import Settings

@@ -1,9 +1,3 @@
-"""Golden set loading and schema.
-
-The golden set lives in JSON rather than in Python so it reads as data in code
-review, and so that adding a case never requires touching the harness.
-"""
-
 from __future__ import annotations
 
 import json
@@ -21,13 +15,6 @@ log = get_logger(__name__)
 
 @dataclass(slots=True)
 class GoldenCase:
-    """One evaluated question.
-
-    Fields divide into what the retriever is judged on (expected_sections,
-    expected_terms) and what the answer is judged on (must_include,
-    expected_value). A case may exercise either or both.
-    """
-
     id: str
     question: str
     intent: str
@@ -73,7 +60,6 @@ def golden_path(settings: Settings | None = None) -> Path:
 
 
 def load_goldens(path: Path | None = None, settings: Settings | None = None) -> list[GoldenCase]:
-    """Load and validate the golden set."""
     path = path or golden_path(settings)
     if not path.exists():
         msg = f"Golden set not found at {path}"

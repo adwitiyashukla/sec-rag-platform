@@ -1,5 +1,3 @@
-"""Provider abstraction and the fallback chain."""
-
 from __future__ import annotations
 
 import asyncio
@@ -23,11 +21,7 @@ Revenue increased two percent during the year. Services grew strongly.
 Question: What are the risks?"""
 
 
-# ---------------------------------------------------------------- echo
-
-
 async def test_echo_produces_a_grounded_cited_answer() -> None:
-    """The offline provider must exercise the real citation path, not stub it."""
     provider = EchoProvider()
     result = await provider.complete([ChatMessage(role="user", content=CONTEXT_PROMPT)])
 
@@ -63,9 +57,6 @@ async def test_echo_streams_the_same_text() -> None:
     assert streamed == complete
 
 
-# ---------------------------------------------------------------- groq
-
-
 @respx.mock
 async def test_groq_parses_a_normal_response() -> None:
     respx.post("https://api.groq.com/openai/v1/chat/completions").mock(
@@ -99,7 +90,6 @@ async def test_groq_raises_on_a_malformed_response() -> None:
 
 @respx.mock
 async def test_groq_does_not_retry_a_client_error() -> None:
-    """Retrying a 400 cannot succeed and only burns free tier quota."""
     route = respx.post("https://api.groq.com/openai/v1/chat/completions").mock(
         return_value=httpx.Response(400, text="bad request")
     )
@@ -115,20 +105,17 @@ def test_missing_api_key_fails_fast() -> None:
         GroqProvider(api_key="", model="m")
 
 
-# ---------------------------------------------------------------- chain
-
-
 class AlwaysFails(LLMProvider):
     name = "broken"
 
     def __init__(self) -> None:
         super().__init__(model="broken-1")
 
-    async def complete(self, messages, **kwargs) -> Completion:  # type: ignore[override]
+    async def complete(self, messages, **kwargs) -> Completion:
         msg = "upstream is down"
         raise ProviderError(msg)
 
-    async def stream(self, messages, **kwargs):  # type: ignore[override]
+    async def stream(self, messages, **kwargs):
         msg = "upstream is down"
         raise ProviderError(msg)
         yield ""
@@ -155,19 +142,12 @@ async def test_chain_streams_through_the_fallback() -> None:
 
 
 def test_build_chain_degrades_to_offline_when_no_keys_exist(settings) -> None:
-    """A misconfigured deployment should boot and be inspectable, not refuse to start."""
     chain = build_chain(settings.model_copy(update={"llm_providers": "groq,gemini"}))
     assert chain.providers[0].name == "echo"
 
 
 @respx.mock
 def test_client_rebinds_when_the_event_loop_changes() -> None:
-    """A pooled client must not outlive the loop that created it.
-
-    Caching one across loops raises "Event loop is closed" on the second call,
-    and only on the second, which makes it easy to ship. It happens wherever a
-    sync caller drives the engine with asyncio.run per request.
-    """
     respx.post("https://api.groq.com/openai/v1/chat/completions").mock(
         return_value=httpx.Response(
             200,
@@ -184,8 +164,6 @@ def test_client_rebinds_when_the_event_loop_changes() -> None:
     first = asyncio.run(provider.complete(message))
     client_after_first = provider._client
 
-    # A second run gets a brand new loop, exactly as a per-request asyncio.run
-    # would. The provider must notice and rebuild rather than reuse.
     second = asyncio.run(provider.complete(message))
 
     assert first.text == second.text == "ok [1]."

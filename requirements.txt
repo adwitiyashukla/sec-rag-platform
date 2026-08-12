@@ -1,13 +1,3 @@
-# Dependencies for the Hugging Face Space (Gradio SDK).
-#
-# Listed explicitly rather than as `.` because Spaces install requirements
-# BEFORE copying the repository into the image, so a local-package install has
-# nothing to read and fails with "Directory '.' is not installable".
-# app.py puts src/ on sys.path instead, so the Space runs exactly the same
-# engine code as the CLI, the API, and the test suite.
-#
-# Mirrors [project.dependencies] in pyproject.toml. Keep the two in step.
-
 pydantic>=2.9.0
 pydantic-settings>=2.6.0
 httpx>=0.27.0
@@ -27,11 +17,7 @@ pyarrow>=17.0.0
 scikit-learn>=1.5.0
 lightgbm>=4.5.0
 
-# The API layer is imported by secrag.api only, which the Space does not use,
-# but keeping it here means `secrag serve` also works from inside the Space.
 fastapi>=0.115.0
 uvicorn[standard]>=0.32.0
 
-# Provided automatically by ZeroGPU Spaces. Listed so a local `pip install -r`
-# matches the Space, and imported defensively in app.py either way.
 spaces>=0.30.0 ; platform_system != "Windows"

@@ -1,26 +1,8 @@
-"""Labelled training data for the query intent router.
-
-Hand-written rather than generated, and deliberately adversarial in places. The
-pairs that matter most are the ones sitting on a boundary:
-
-  "What was Apple's revenue in 2024?"          -> numeric, look it up in XBRL
-  "What does Apple say about revenue growth?"  -> factoid, read the narrative
-
-Both mention revenue and a company. Only the first wants a figure. A classifier
-that cannot separate those two sends narrative questions to the arithmetic
-engine and figure questions to the language model, which is exactly the failure
-this router exists to prevent.
-
-The held-out score reported by the trainer is the honest measure of whether
-that separation was learned.
-"""
-
 from __future__ import annotations
 
 from secrag.core.types import QueryIntent
 
 TRAINING_EXAMPLES: tuple[tuple[str, QueryIntent], ...] = (
-    # ---------------------------------------------------------------- factoid
     ("What does Apple say about supply chain risk?", QueryIntent.FACTOID),
     ("What are the main risk factors disclosed in the filing?", QueryIntent.FACTOID),
     ("Describe the company's business segments", QueryIntent.FACTOID),
@@ -49,7 +31,6 @@ TRAINING_EXAMPLES: tuple[tuple[str, QueryIntent], ...] = (
     ("Describe any material weaknesses identified", QueryIntent.FACTOID),
     ("What is disclosed about executive compensation policy?", QueryIntent.FACTOID),
     ("What does the company say about artificial intelligence?", QueryIntent.FACTOID),
-    # ---------------------------------------------------------------- numeric
     ("What was Apple's revenue in fiscal 2024?", QueryIntent.NUMERIC),
     ("How much net income did Microsoft report in 2023?", QueryIntent.NUMERIC),
     ("What was the gross margin in FY2024?", QueryIntent.NUMERIC),
@@ -77,7 +58,6 @@ TRAINING_EXAMPLES: tuple[tuple[str, QueryIntent], ...] = (
     ("What was the cost of revenue in 2024?", QueryIntent.NUMERIC),
     ("Revenue CAGR between 2019 and 2024?", QueryIntent.NUMERIC),
     ("What is the R and D spend as a percentage of revenue?", QueryIntent.NUMERIC),
-    # ------------------------------------------------------------ comparative
     ("Compare Apple and Microsoft revenue in 2024", QueryIntent.COMPARATIVE),
     ("Which company has a higher gross margin, Apple or Nvidia?", QueryIntent.COMPARATIVE),
     ("How do the risk factors of Apple and Microsoft differ?", QueryIntent.COMPARATIVE),
@@ -102,7 +82,6 @@ TRAINING_EXAMPLES: tuple[tuple[str, QueryIntent], ...] = (
     ("Compare operating income between Apple and Microsoft", QueryIntent.COMPARATIVE),
     ("Who has more debt, Apple or Microsoft?", QueryIntent.COMPARATIVE),
     ("Contrast their competitive positioning statements", QueryIntent.COMPARATIVE),
-    # --------------------------------------------------------------- multihop
     ("How did Apple's risk disclosures change between 2023 and 2025?", QueryIntent.MULTI_HOP),
     ("What changed in the MD&A compared with the prior year?", QueryIntent.MULTI_HOP),
     ("Trace how the company's supply chain language evolved over time", QueryIntent.MULTI_HOP),

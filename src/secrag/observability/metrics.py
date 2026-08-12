@@ -1,24 +1,9 @@
-"""In-process metrics with Prometheus text exposition.
-
-A dependency-free registry rather than prometheus_client, because the needs
-here are counters, gauges, and a fixed-bucket histogram, and hand-rolling that
-is roughly eighty lines while the dependency pulls in a multiprocess registry
-this deployment will never use.
-
-Everything is process-local. That is the correct scope for a single-container
-service, and it is stated plainly so nobody mistakes it for something that
-survives a restart or aggregates across replicas.
-"""
-
 from __future__ import annotations
 
 import threading
 from collections import defaultdict
 from dataclasses import dataclass, field
 
-# Buckets chosen around the latencies this pipeline actually produces: tens of
-# milliseconds for a cache hit, hundreds for retrieval, seconds when an LLM is
-# in the path.
 DEFAULT_BUCKETS: tuple[float, ...] = (
     5,
     10,
@@ -49,7 +34,6 @@ class Histogram:
                 self.counts[bound] = self.counts.get(bound, 0) + 1
 
     def quantile(self, q: float) -> float:
-        """Bucket-boundary estimate. Coarse by construction, and honest about it."""
         if self.n == 0:
             return 0.0
         target = q * self.n
@@ -62,8 +46,6 @@ class Histogram:
 
 
 class MetricsRegistry:
-    """Thread-safe counters, gauges, and histograms."""
-
     def __init__(self) -> None:
         self._lock = threading.Lock()
         self._counters: dict[tuple[str, tuple[tuple[str, str], ...]], float] = defaultdict(float)
@@ -108,7 +90,6 @@ class MetricsRegistry:
             }
 
     def render_prometheus(self) -> str:
-        """Prometheus text exposition format."""
         lines: list[str] = []
         with self._lock:
             for (name, labels), value in sorted(self._counters.items()):
