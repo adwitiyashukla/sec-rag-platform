@@ -18,31 +18,6 @@ answer quality regresses.**
 
 ---
 
-## The problem this is built around
-
-Most RAG projects stop at "documents in, answer out." That is a weekend
-tutorial. The engineering problems that actually matter show up afterwards:
-
-**You cannot tell when it gets worse.** Change the chunk size, swap an embedding
-model, adjust a prompt, and quality moves. Without a fixed golden set and a
-threshold gate, "the retrieval got better" is an opinion. Here it is a number in
-CI, and a regression fails the build.
-
-**Language models cannot read financial tables.** A 10-K table spans multiple
-periods, nests headers, and carries scaling captions far from the figures they
-govern. Ask a model for revenue growth and it produces something plausible and
-wrong. That is the worst failure mode on financial data: confident, specific,
-and unverifiable at a glance. So numbers are not generated here at all. They are
-looked up in the SEC's structured XBRL data and computed in pandas, and every
-figure carries its formula and inputs.
-
-**A citation is not evidence.** An answer that cites `[2]` is not thereby
-supported by `[2]`. Every sentence is checked against the passage it cites, and
-answers scoring below a groundedness threshold are withheld with an explanation
-rather than returned with a disclaimer.
-
----
-
 ## Architecture
 
 ```mermaid
@@ -179,38 +154,6 @@ The gate passes. Thresholds live in [`evals/thresholds.json`](evals/thresholds.j
 
 ---
 
-## Two bugs worth reading about
-
-Both were caught by tests written against real data, and both are the kind that
-produce a system that looks like it works.
-
-### Quarterly figures read as annual
-
-SEC XBRL observations carry `fp` and `fy` fields. Those describe the *report*
-the fact appeared in, not the period the fact covers. A 10-K also tags its
-fourth-quarter figures, and those carry `fp="FY"` and `form="10-K"` as well.
-
-Filtering on those fields alone admits quarterly values as annual ones. Apple's
-FY2020 revenue then reads as **64.7 billion**, its Q4 figure, instead of
-**274.5 billion**, and every growth rate computed from it is wrong while looking
-entirely reasonable. FY2021 growth showed as 465 percent.
-
-The fix selects annual facts by measuring each observation's actual
-start-to-end duration, and labels fiscal years by the calendar year the period
-ends in. Covered by `tests/unit/test_xbrl_and_planner.py`.
-
-### The query prefix that is silently missing
-
-BGE v1.5 was trained with an asymmetric instruction prefix applied to queries
-only. `fastembed` does not apply it: `query_embed`, `passage_embed`, and `embed`
-all return identical vectors, verified by comparison. The correctly prefixed
-query differs from the unprefixed one at cosine **0.969**.
-
-Omitting it is not an error. Retrieval still returns results, they are simply
-measurably worse. It is applied explicitly in `Embedder.embed_query`.
-
----
-
 ## Quickstart
 
 ```bash
@@ -302,34 +245,6 @@ src/secrag/
 ├── api/            FastAPI service
 └── engine.py       The orchestrator that sequences all of it
 ```
-
----
-
-## Limitations
-
-Stated plainly, because a project that claims none is not being honest.
-
-- **Relevance judgement is weak supervision.** A chunk counts as relevant when
-  it comes from an expected 10-K Item and contains an expected term. That is a
-  reproducible proxy, not human-labelled ground truth. It detects regressions
-  reliably; it does not license absolute claims about recall.
-- **Groundedness measures relatedness, not entailment.** Embedding similarity
-  catches unsupported and off-topic claims. A sentence that contradicts its
-  source while using its vocabulary can still score highly. Numeric claims,
-  where inversion matters most, bypass the model entirely.
-- **The router is overconfident out of distribution.** "Tell me about the
-  weather" routes to `factoid` at 0.94. Retrieval then returns nothing relevant
-  and the system refuses, so the failure is contained, but the confidence score
-  should not be read as calibrated.
-- **SPLADE is off by default in deployment.** It adds 532 MB against BGE's
-  67 MB. It is benchmarked here and enabled with `SECRAG_ENABLE_SPLADE=true`.
-- **Embedded Qdrant is single-process.** Correct at this corpus size, and the
-  reason to move to a Qdrant server rather than to change the code.
-- **The corpus is five companies over two years.** Enough to stress the parser
-  across sectors, not a claim about scale.
-- **The demo runs on a free Space, which sleeps after 48 hours idle.** A
-  scheduled workflow pings it every 12 hours to keep it warm. If you find it
-  waking up, that is why, and it takes about a minute.
 
 ---
 
